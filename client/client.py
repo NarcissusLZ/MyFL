@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import copy
 import time
-
+from tqdm import tqdm
 
 class Client:
     def __init__(self, id, config, local_dataset):
@@ -72,7 +71,17 @@ class Client:
         # 训练多个epoch
         for epoch in range(self.config['local_epochs']):
             epoch_loss = 0.0
-            for batch_idx, (data, target) in enumerate(self.train_loader):
+
+            # 创建进度条
+            progress_bar = tqdm(
+                enumerate(self.train_loader),
+                total=len(self.train_loader),
+                desc=f"客户端 {self.id} | Epoch {epoch + 1}/{self.config['local_epochs']}",
+                ncols=100,
+                leave=True
+            )
+
+            for batch_idx, (data, target) in progress_bar:
                 data, target = data.to(self.device), target.to(self.device)
 
                 # 前向传播
@@ -95,11 +104,14 @@ class Client:
 
                 epoch_loss += loss.item()
 
-                # 定期打印进度
-                if batch_idx % 10 == 0:
-                    print(f"客户端 {self.id} | Epoch {epoch + 1}/{self.config['local_epochs']} | "
-                          f"Batch {batch_idx}/{len(self.train_loader)} | Loss: {loss.item():.4f}")
+                # 更新进度条显示
+                current_avg_loss = epoch_loss / (batch_idx + 1)
+                progress_bar.set_postfix({
+                    'Loss': f'{loss.item():.4f}',
+                    'Avg Loss': f'{current_avg_loss:.4f}'
+                })
 
+            # Epoch完成后的信息
             avg_epoch_loss = epoch_loss / len(self.train_loader)
             print(f"客户端 {self.id} | Epoch {epoch + 1} 完成 | 平均损失: {avg_epoch_loss:.4f}")
 

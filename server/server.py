@@ -89,6 +89,9 @@ class Server:
             for key in global_state:
                 # 跳过BatchNorm的num_batches_tracked参数
                 if 'num_batches_tracked' in key:
+                    # 对于num_batches_tracked，直接使用第一个客户端的值
+                    if client_id == list(self.client_weights.keys())[0]:
+                        global_state[key] = client_state[key].clone()
                     continue
 
                 # 确保设备一致

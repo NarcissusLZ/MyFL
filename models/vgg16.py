@@ -57,6 +57,7 @@ class CIFAR10_VGG16(nn.Module):
 
         return nn.Sequential(*layers)
 
+#用于本地读取测试
 if __name__ == '__main__':
     model = CIFAR10_VGG16()
     # 获取配置参数

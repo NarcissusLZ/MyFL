@@ -29,6 +29,7 @@ def load_config(config_path='config.yaml'):
     return config
 
 
+#该函数应单独置于data文件夹，而非在main中
 def split_dataset_to_clients(dataset, num_clients, non_iid=False, alpha=0.5, seed=42):
     """
     将数据集划分给多个客户端

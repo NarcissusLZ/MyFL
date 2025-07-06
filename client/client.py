@@ -45,7 +45,7 @@ class Client:
 
     def _create_model(self):
         """创建与服务器相同结构的模型"""
-        # 根据您的模型配置创建模型
+        # 根据模型配置创建模型
         if self.config['model'] == 'CIFAR10_VGG16':
             from models.vgg16 import CIFAR10_VGG16
             return CIFAR10_VGG16()
@@ -120,3 +120,4 @@ class Client:
 
         # 返回更新后的模型状态字典
         return self.model.state_dict()
+

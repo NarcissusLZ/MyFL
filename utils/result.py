@@ -5,6 +5,16 @@ import time
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from matplotlib import font_manager
+
+# 设置中文字体
+plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'WenQuanYi Micro Hei']
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+
+# 或者直接设置字体
+matplotlib.rcParams['font.family'] = ['sans-serif']
+matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 
 # 配置日志
 logging.basicConfig(

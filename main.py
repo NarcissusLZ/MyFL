@@ -52,10 +52,24 @@ def main():
         alpha=config['non_iid_alpha']
     )
 
-    # 打印每个客户端的数据量
+    # 打印每个客户端的数据量和类别分布
     logger.info("\n客户端数据分布:")
     for client_id, data_subset in client_data.items():
-        logger.info(f"客户端 {client_id}: {len(data_subset)} 个样本")
+        # 获取该客户端的所有标签
+        labels = [data_subset[i][1] for i in range(len(data_subset))]
+
+        # 统计类别分布
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        label_distribution = dict(zip(unique_labels, counts))
+
+        # 计算类别比例
+        total_samples = len(data_subset)
+        label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
+
+        logger.info(f"客户端 {client_id}: {total_samples} 个样本")
+        logger.info(f"  类别分布: {label_distribution}")
+        logger.info(f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}")
+        logger.info("-" * 30)
 
     # 4. 初始化服务器
     logger.info("\n初始化服务器...")

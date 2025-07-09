@@ -193,5 +193,5 @@ class Server:
         self.client_weights = {}
 
         # 释放MPS内存（如果使用Apple Silicon）
-        if self.device.type == 'mps':
-            torch.mps.empty_cache()
+        # if self.device.type == 'mps':
+        #     torch.mps.empty_cache()

@@ -1,6 +1,6 @@
-import torch
+import torch, yaml
 import torch.nn as nn
-import yaml
+import torch.nn.functional as F
 
 
 # 根据配置和硬件支持自动选择设备
@@ -13,136 +13,115 @@ def select_device(device_config):
         return torch.device('cpu')
 
 
-# 定义基本残差块
 class BasicBlock(nn.Module):
+    """ResNet的基本块"""
     expansion = 1
 
-    def __init__(self, in_channels, out_channels, stride=1):
+    def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
 
-        # 如果输入和输出维度不匹配，使用1x1卷积进行调整
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels:
+        if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels)
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion * planes)
             )
 
     def forward(self, x):
-        residual = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        out += self.shortcut(residual)
-        out = self.relu(out)
-
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
         return out
 
 
 class CIFAR10_ResNet18(nn.Module):
     def __init__(self, num_classes=10):
         super(CIFAR10_ResNet18, self).__init__()
-        # CIFAR-10使用较小的初始卷积层
+        self.in_planes = 64
+
+        # 针对CIFAR-10的32x32输入优化
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
 
-        # 4个残差层
-        self.layer1 = self._make_layer(64, 64, 2, stride=1)
-        self.layer2 = self._make_layer(64, 128, 2, stride=2)
-        self.layer3 = self._make_layer(128, 256, 2, stride=2)
-        self.layer4 = self._make_layer(256, 512, 2, stride=2)
+        # ResNet18层配置: [2, 2, 2, 2]
+        self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
+        self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
+        self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
+        self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
 
+        # 全局平均池化
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512, num_classes)
 
-    def _make_layer(self, in_channels, out_channels, num_blocks, stride):
+        # 分类器
+        self.fc = nn.Linear(512 * BasicBlock.expansion, num_classes)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
         layers = []
-        # 只有第一个块可能改变维度
-        layers.append(BasicBlock(in_channels, out_channels, stride))
-
-        # 后续块不改变维度
-        for _ in range(1, num_blocks):
-            layers.append(BasicBlock(out_channels, out_channels, 1))
-
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-
-        return x
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out
 
 
 class CIFAR100_ResNet18(nn.Module):
     def __init__(self, num_classes=100):
         super(CIFAR100_ResNet18, self).__init__()
-        # CIFAR-100使用和CIFAR-10相同的架构，但有不同的分类器
+        self.in_planes = 64
+
+        # 针对CIFAR-100的32x32输入优化
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
 
-        # 4个残差层
-        self.layer1 = self._make_layer(64, 64, 2, stride=1)
-        self.layer2 = self._make_layer(64, 128, 2, stride=2)
-        self.layer3 = self._make_layer(128, 256, 2, stride=2)
-        self.layer4 = self._make_layer(256, 512, 2, stride=2)
+        # ResNet18层配置: [2, 2, 2, 2]
+        self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
+        self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
+        self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
+        self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
 
+        # 全局平均池化
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        # CIFAR-100的分类器使用额外的dropout层提高泛化能力
+        # CIFAR-100优化的分类器：添加dropout防止过拟合
         self.classifier = nn.Sequential(
-            nn.Dropout(0.4),
-            nn.Linear(512, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(256, num_classes)
+            nn.Dropout(0.5),
+            nn.Linear(512 * BasicBlock.expansion, num_classes)
         )
 
-    def _make_layer(self, in_channels, out_channels, num_blocks, stride):
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
         layers = []
-        layers.append(BasicBlock(in_channels, out_channels, stride))
-
-        for _ in range(1, num_blocks):
-            layers.append(BasicBlock(out_channels, out_channels, 1))
-
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.classifier(x)
-
-        return x
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+        return out
 
 
 # 用于本地读取测试
@@ -152,19 +131,24 @@ if __name__ == '__main__':
     with open("../config.yaml", 'r') as f:
         conf = yaml.safe_load(f)
 
-    device_config = conf.get('device', 'cpu').lower()
+    device_config = conf.get('device').lower()
     device = select_device(device_config)
 
     model = model.to(device)  # 统一迁移到目标设备
     print(model)
     print(next(model.parameters()).device)
 
-    # 计算并打印每层参数
+    # Calculate and print parameters for each layer
     total_params = 0
     for name, param in CIFAR10_ResNet18().named_parameters():
         layer_params = param.numel()
         total_params += layer_params
         print(f"{name}: {layer_params} parameters")
-
     total_params_mb = (total_params * 4) / 1024 / 1024
-    print(f"总模型参数: {total_params_mb:.2f} MB")
+    print(f"Total model parameters: {total_params_mb:.2f} MB")
+
+    # 测试模型输出
+    test_input = torch.randn(1, 3, 32, 32).to(device)
+    with torch.no_grad():
+        output = model(test_input)
+        print(f"Output shape: {output.shape}")

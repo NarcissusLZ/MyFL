@@ -3,7 +3,7 @@ device: "mps"             # 训练设备 (cpu, cuda, mps)
 server_device: "mps"      # 服务器设备
 
 # 数据集配置
-dataset: "cifar10"        # 数据集名称 (mnist, fashion-mnist, cifar10, cifar100)
+dataset: "cifar100"        # 数据集名称 (mnist, fashion-mnist, cifar10, cifar100)
 data_dir: "./datasets"    # 数据集存储目录
 
 # 训练超参数
@@ -20,7 +20,7 @@ non_iid: True             # 是否使用非独立同分布数据
 non_iid_alpha: 0.5        # 非独立同分布程度 (值越小越非独立)
 
 # 模型配置
-model: "CIFAR10_VGG16"    # 模型架构
+model: "VGG16"    # 模型架构
 
 # 其他配置
 max_grad_norm: 5.0        # 梯度裁剪阈值

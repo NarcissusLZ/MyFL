@@ -28,6 +28,41 @@ class Server:
 
         print(f"服务器初始化完成, 设备: {self.device}")
 
+    def _create_model(self):
+        """创建模型实例"""
+        if self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar10':
+            from models.vgg16 import CIFAR10_VGG16
+            return CIFAR10_VGG16(num_classes=10)
+        elif self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar100':
+            from models.vgg16 import CIFAR100_VGG16
+            return CIFAR100_VGG16(num_classes=100)
+        else:
+            raise ValueError(f"未知模型: {self.config['model']}")
+
+    def _get_model_class(self):
+        """获取模型类（返回类对象，不是字符串）"""
+        if self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar10':
+            from models.vgg16 import CIFAR10_VGG16
+            return CIFAR10_VGG16
+        elif self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar100':
+            from models.vgg16 import CIFAR100_VGG16
+            return CIFAR100_VGG16
+        else:
+            raise ValueError(f"未知模型: {self.config['model']}")
+
+    def initialize_clients(self, clients):
+        """向所有客户端下发初始模型"""
+        print("服务器开始向客户端下发模型...")
+
+        # 获取模型类对象
+        model_class = self._get_model_class()
+        initial_state_dict = copy.deepcopy(self.global_model.state_dict())
+
+        for client in clients:
+            client.receive_model(model_class, initial_state_dict)
+
+        print(f"已向 {len(clients)} 个客户端下发模型")
+
     def _select_device(self, device_config):
         """选择设备"""
         if device_config == 'cuda' and torch.cuda.is_available():
@@ -37,14 +72,16 @@ class Server:
         else:
             return torch.device('cpu')
 
-    def _create_model(self):
-        """创建模型"""
-        # 根据模型配置创建模型
-        if self.config['model'] == 'CIFAR10_VGG16':
-            from models.vgg16 import CIFAR10_VGG16
-            return CIFAR10_VGG16()
-        else:
-            raise ValueError(f"未知模型: {self.config['model']}")
+    def broadcast_model(self, selected_clients):
+        """向选中的客户端广播最新的全局模型参数"""
+        print("服务器广播全局模型参数...")
+
+        global_state_dict = copy.deepcopy(self.global_model.state_dict())
+
+        for client in selected_clients:
+            client.update_model(global_state_dict)  # 修复方法名
+
+        print(f"已向 {len(selected_clients)} 个客户端广播模型参数")
 
     def select_clients(self, all_clients, fraction=0.1):
         """选择参与本轮训练的客户端"""
@@ -70,8 +107,16 @@ class Server:
         """执行FedAvg聚合算法"""
         print("开始模型聚合...")
 
+        if not self.client_weights:
+            print("警告: 没有客户端更新数据，跳过聚合")
+            return
+
         # 计算总样本数
         total_samples = sum(w['num_samples'] for w in self.client_weights.values())
+
+        if total_samples == 0:
+            print("警告: 总样本数为0，跳过聚合")
+            return
 
         # 初始化全局模型参数
         global_state = self.global_model.state_dict()

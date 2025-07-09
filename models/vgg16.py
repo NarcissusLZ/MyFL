@@ -57,9 +57,55 @@ class CIFAR10_VGG16(nn.Module):
 
         return nn.Sequential(*layers)
 
+class CIFAR100_VGG16(nn.Module):
+    def __init__(self, num_classes=100):
+        super(CIFAR100_VGG16, self).__init__()
+
+        self.features = self._make_layers(vgg)
+        # 添加自适应池化确保输出为1x1
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # CIFAR-100优化的分类器：更强的正则化
+        self.dense = nn.Sequential(
+            nn.Linear(512, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),  # 增加dropout防止过拟合
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            # 添加额外的层提升表征能力
+            nn.Linear(4096, 2048),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+        )
+        # 100个类别的分类器
+        self.classifier = nn.Linear(2048, num_classes)
+
+    def forward(self, x):
+        out = self.features(x)
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+        out = self.dense(out)
+        out = self.classifier(out)
+        return out
+
+    def _make_layers(self, vgg):
+        layers = []
+        in_channels = 3
+        for x in vgg:
+            if x == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),
+                           nn.BatchNorm2d(x),
+                           nn.ReLU(inplace=True)]
+                in_channels = x
+
+        return nn.Sequential(*layers)
+
 #用于本地读取测试
 if __name__ == '__main__':
-    model = CIFAR10_VGG16()
+    model = CIFAR100_VGG16()
     # 获取配置参数
     with open("../config.yaml", 'r') as f:
         conf = yaml.safe_load(f)

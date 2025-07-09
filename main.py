@@ -1,11 +1,8 @@
-import torch
 import yaml
-import os
 import time
 import numpy as np
 import copy
 import logging
-
 
 # 配置日志
 logging.basicConfig(
@@ -19,6 +16,7 @@ from data.getdata import get_dataset
 from client.client import Client
 from server.server import Server
 from data.split import split_dataset_to_clients
+from utils.result import *
 
 def load_config(config_path='config.yaml'):
     """加载配置文件"""
@@ -84,7 +82,10 @@ def main():
             config=config,
             local_dataset=data_subset
         )
+    logger.info("服务器向客户端下发初始模型...")
+    server.initialize_clients(list(clients.values()))
     logger.info(f"已初始化 {len(clients)} 个客户端")
+
 
     # 6. 训练循环
     logger.info("\n开始联邦学习训练...")
@@ -110,18 +111,16 @@ def main():
         logger.info(f"本轮选中客户端: {client_ids}")
         history['clients_selected'].append(len(selected_clients))
 
-        # b. 服务器发送全局模型状态字典给选中的客户端
-        global_state = server.global_model.state_dict()
-        for client in selected_clients:
-            client.get_model(copy.deepcopy(global_state))
+        # b. 服务器向选中客户端广播全局模型参数
+        server.broadcast_model(selected_clients)
 
         # c. 客户端本地训练
         client_updates = {}
         for client in selected_clients:
-            local_state = client.local_train()
+            model_state, num_samples = client.local_train()
             client_updates[client.id] = {
-                'model_state': local_state,
-                'num_samples': len(client.local_dataset)
+                'model_state': model_state,
+                'num_samples': num_samples
             }
 
         # d. 客户端上传模型更新给服务器
@@ -163,36 +162,6 @@ def main():
 
     return history
 
-
-def save_results(config, history, server):
-    """保存训练结果和模型"""
-    # 创建结果目录
-    result_dir = config.get('result_dir', 'results')
-    os.makedirs(result_dir, exist_ok=True)
-
-    # 生成时间戳
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-
-    # 保存训练历史
-    history_path = os.path.join(result_dir, f"history_{timestamp}.npy")
-    np.save(history_path, history)
-    logger.info(f"训练历史保存至: {history_path}")
-
-    # 保存模型
-    model_path = os.path.join(result_dir, f"global_model_{timestamp}.pth")
-    torch.save(server.global_model.state_dict(), model_path)
-    logger.info(f"全局模型保存至: {model_path}")
-
-    # 保存配置文件
-    config_path = os.path.join(result_dir, f"config_{timestamp}.yaml")
-    with open(config_path, 'w') as f:
-        yaml.dump(config, f)
-    logger.info(f"配置文件保存至: {config_path}")
-
-    # 打印最终性能
-    logger.info("\n训练轮次性能:")
-    for i in range(len(history['round'])):
-        logger.info(f"轮次 {history['round'][i]}: 准确率={history['accuracy'][i]:.2f}%, 损失={history['loss'][i]:.4f}")
 
 
 if __name__ == "__main__":

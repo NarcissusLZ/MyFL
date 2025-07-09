@@ -4,6 +4,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
 from tqdm import tqdm
+import copy
+
 
 class Client:
     def __init__(self, id, config, local_dataset):
@@ -12,16 +14,9 @@ class Client:
         self.local_dataset = local_dataset
         self.device = self._select_device(config['device'])
 
-        # 初始化模型
-        self.model = self._create_model()
-        self.model.to(self.device)
-
-        # 优化器
-        self.optimizer = optim.SGD(
-            self.model.parameters(),
-            lr=config['lr'],
-            momentum=config['momentum']
-        )
+        # 声明模型，等待下发
+        self.model = None
+        self.optimizer = None
 
         # 数据加载器
         self.train_loader = DataLoader(
@@ -33,6 +28,7 @@ class Client:
         )
 
         print(f"客户端 {self.id} 初始化完成, 设备: {self.device}, 数据量: {len(local_dataset)}")
+        print(f"客户端 {self.id} 等待服务器下发模型...")
 
     def _select_device(self, device_config):
         """选择设备"""
@@ -43,25 +39,54 @@ class Client:
         else:
             return torch.device('cpu')
 
-    def _create_model(self):
-        """创建与服务器相同结构的模型"""
-        # 根据模型配置创建模型
-        if self.config['model'] == 'CIFAR10_VGG16':
-            from models.vgg16 import CIFAR10_VGG16
-            return CIFAR10_VGG16()
-        else:
-            raise ValueError(f"未知模型: {self.config['model']}")
-
-    def get_model(self, model_state_dict):
-        """接收服务器下发的全局模型状态字典"""
-        # 加载状态字典到本地模型
-        self.model.load_state_dict(model_state_dict)
-        # 确保模型在正确设备上
+    def receive_model(self, model_class, model_state_dict=None):
+        """接收服务器下发的模型"""
+        # 根据服务器指定的模型类创建模型
+        self.model = model_class()
         self.model.to(self.device)
-        print(f"客户端 {self.id} 已接收全局模型")
+
+        # 如果提供了状态字典，则加载
+        if model_state_dict is not None:
+            # 确保状态字典在正确的设备上
+            device_state_dict = {}
+            for key, value in model_state_dict.items():
+                device_state_dict[key] = value.to(self.device)
+            self.model.load_state_dict(device_state_dict)
+
+        # 初始化优化器（需要在模型创建后）
+        self._initialize_optimizer()
+
+        print(f"客户端 {self.id} 已接收模型: {self.model.__class__.__name__}")
+
+    def _initialize_optimizer(self):
+        """初始化优化器"""
+        if self.model is None:
+            raise ValueError(f"客户端 {self.id} 模型未初始化，无法创建优化器")
+
+        self.optimizer = optim.SGD(
+            self.model.parameters(),
+            lr=self.config['lr'],
+            momentum=self.config['momentum']
+        )
+
+    def update_model(self, model_state_dict):
+        """更新模型参数（用于后续轮次）"""
+        if self.model is None:
+            raise ValueError(f"客户端 {self.id} 尚未接收模型，无法更新参数")
+
+        # 确保状态字典在正确的设备上
+        device_state_dict = {}
+        for key, value in model_state_dict.items():
+            device_state_dict[key] = value.to(self.device)
+
+        self.model.load_state_dict(device_state_dict)
+        print(f"客户端 {self.id} 已更新模型参数")
 
     def local_train(self):
         """在本地数据集上训练模型"""
+        if self.model is None:
+            raise ValueError(f"客户端 {self.id} 模型未初始化，无法进行训练")
+
         print(f"客户端 {self.id} 开始本地训练...")
         start_time = time.time()
 
@@ -78,7 +103,7 @@ class Client:
                 total=len(self.train_loader),
                 desc=f"客户端 {self.id} | Epoch {epoch + 1}/{self.config['local_epochs']}",
                 ncols=100,
-                leave=True
+                leave=False  # 修改为False，避免进度条累积
             )
 
             for batch_idx, (data, target) in progress_bar:
@@ -118,6 +143,15 @@ class Client:
         training_time = time.time() - start_time
         print(f"客户端 {self.id} 本地训练完成 | 耗时: {training_time:.2f}秒")
 
-        # 返回更新后的模型状态字典
-        return self.model.state_dict()
+        # 返回更新后的模型状态字典和样本数量
+        return self.model.state_dict(), len(self.local_dataset)
 
+    def get_model_update(self):
+        """获取模型更新（供服务器调用）"""
+        if self.model is None:
+            raise ValueError(f"客户端 {self.id} 模型未初始化")
+
+        return {
+            'state_dict': copy.deepcopy(self.model.state_dict()),
+            'num_samples': len(self.local_dataset)
+        }

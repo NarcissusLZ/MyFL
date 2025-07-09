@@ -55,8 +55,7 @@ def save_results(config, history, server):
 
     result_plc(history, result_dir, timestamp)
 
-def result_plc(history,result_dir,timestamp):
-    # 生成训练过程图表
+def result_plc(history, result_dir, timestamp):
     logger.info("\n生成训练过程图表...")
 
     plt.figure(figsize=(12, 5))
@@ -64,19 +63,17 @@ def result_plc(history,result_dir,timestamp):
     # 准确率图表
     plt.subplot(1, 2, 1)
     plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
-    plt.title('训练准确率变化', fontsize=14)
-    plt.xlabel('训练轮次', fontsize=12)
-    plt.ylabel('准确率 (%)', fontsize=12)
-    plt.grid(True, alpha=0.3)
+    plt.title('Training Accuracy', fontsize=14)
+    plt.xlabel('Round', fontsize=12)
+    plt.ylabel('Accuracy (%)', fontsize=12)
     plt.ylim(0, 100)
 
     # 损失图表
     plt.subplot(1, 2, 2)
     plt.plot(history['round'], history['loss'], 'r-', marker='s', linewidth=2, markersize=4)
-    plt.title('训练损失变化', fontsize=14)
-    plt.xlabel('训练轮次', fontsize=12)
-    plt.ylabel('损失值', fontsize=12)
-    plt.grid(True, alpha=0.3)
+    plt.title('Training Loss', fontsize=14)
+    plt.xlabel('Round', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
 
     plt.tight_layout()
 

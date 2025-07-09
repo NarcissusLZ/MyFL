@@ -1,8 +1,6 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-from collections import defaultdict
-import time
 import copy
 import torch.nn as nn
 
@@ -36,6 +34,12 @@ class Server:
         elif self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar100':
             from models.vgg16 import CIFAR100_VGG16
             return CIFAR100_VGG16(num_classes=100)
+        elif self.config['model'] == 'RESNET18' and self.config['dataset'] == 'cifar10':
+            from models.resnet18 import CIFAR10_ResNet18
+            return CIFAR10_ResNet18(num_classes=10)
+        elif self.config['model'] == 'RESNET18' and self.config['dataset'] == 'cifar100':
+            from models.resnet18 import CIFAR100_ResNet18
+            return CIFAR100_ResNet18(num_classes=100)
         else:
             raise ValueError(f"未知模型: {self.config['model']}")
 
@@ -47,6 +51,12 @@ class Server:
         elif self.config['model'] == 'VGG16' and self.config['dataset'] == 'cifar100':
             from models.vgg16 import CIFAR100_VGG16
             return CIFAR100_VGG16
+        elif self.config['model'] == 'RESNET18' and self.config['dataset'] == 'cifar10':
+            from models.resnet18 import CIFAR10_ResNet18
+            return CIFAR10_ResNet18
+        elif self.config['model'] == 'RESNET18' and self.config['dataset'] == 'cifar100':
+            from models.resnet18 import CIFAR100_ResNet18
+            return CIFAR100_ResNet18
         else:
             raise ValueError(f"未知模型: {self.config['model']}")
 

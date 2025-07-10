@@ -69,19 +69,6 @@ class Client:
             momentum=self.config['momentum']
         )
 
-    def update_model(self, model_state_dict):
-        """更新模型参数（用于后续轮次）"""
-        if self.model is None:
-            raise ValueError(f"客户端 {self.id} 尚未接收模型，无法更新参数")
-
-        # 确保状态字典在正确的设备上
-        device_state_dict = {}
-        for key, value in model_state_dict.items():
-            device_state_dict[key] = value.to(self.device)
-
-        self.model.load_state_dict(device_state_dict)
-        print(f"客户端 {self.id} 已更新模型参数")
-
     def local_train(self):
         """在本地数据集上训练模型"""
         if self.model is None:
@@ -146,12 +133,12 @@ class Client:
         # 返回更新后的模型状态字典和样本数量
         return self.model.state_dict(), len(self.local_dataset)
 
-    def get_model_update(self):
-        """获取模型更新（供服务器调用）"""
-        if self.model is None:
-            raise ValueError(f"客户端 {self.id} 模型未初始化")
-
-        return {
-            'state_dict': copy.deepcopy(self.model.state_dict()),
-            'num_samples': len(self.local_dataset)
-        }
+    # def get_model_update(self):
+    #     """获取模型更新（供服务器调用）"""
+    #     if self.model is None:
+    #         raise ValueError(f"客户端 {self.id} 模型未初始化")
+    #
+    #     return {
+    #         'state_dict': copy.deepcopy(self.model.state_dict()),
+    #         'num_samples': len(self.local_dataset)
+    #     }

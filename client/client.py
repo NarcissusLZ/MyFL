@@ -132,13 +132,3 @@ class Client:
 
         # 返回更新后的模型状态字典和样本数量
         return self.model.state_dict(), len(self.local_dataset)
-
-    # def get_model_update(self):
-    #     """获取模型更新（供服务器调用）"""
-    #     if self.model is None:
-    #         raise ValueError(f"客户端 {self.id} 模型未初始化")
-    #
-    #     return {
-    #         'state_dict': copy.deepcopy(self.model.state_dict()),
-    #         'num_samples': len(self.local_dataset)
-    #     }

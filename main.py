@@ -1,7 +1,3 @@
-import yaml
-import time
-import numpy as np
-import copy
 import logging
 
 # 配置日志
@@ -82,10 +78,10 @@ def main():
             config=config,
             local_dataset=data_subset
         )
-    logger.info("服务器向客户端下发初始模型...")
-    server.initialize_clients(list(clients.values()))
+    logger.info("服务器向所有客户端下发初始模型...")
+    server.init_model()
+    server.broadcast_model(list(clients.values()))
     logger.info(f"已初始化 {len(clients)} 个客户端")
-
 
     # 6. 训练循环
     logger.info("\n开始联邦学习训练...")
@@ -100,7 +96,7 @@ def main():
 
     for round in range(config['num_rounds']):
         round_start = time.time()
-        logger.info(f"\n=== 训练轮次 {round + 1}/{config['num_rounds']} ===")
+        logger.info(f"\n====== 训练轮次 {round + 1}/{config['num_rounds']} ======")
 
         # a. 服务器选择客户端
         selected_clients = server.select_clients(
@@ -125,7 +121,7 @@ def main():
 
         # d. 客户端上传模型更新给服务器
         for client_id, update in client_updates.items():
-            server.get_local_model(
+            server.receive_local_model(
                 client_id,
                 update['model_state'],
                 update['num_samples']

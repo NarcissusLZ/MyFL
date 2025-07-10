@@ -14,7 +14,7 @@ local_epochs: 3           # 本地训练轮次
 
 # 联邦学习配置
 num_rounds: 10           # 全局训练轮次
-num_clients: 20           # 客户端总数
+num_clients: 10           # 客户端总数
 client_fraction: 0.2      # 每轮选择的客户端比例 (choose_number/num_clients = 10/20 = 0.5)
 non_iid: True             # 是否使用非独立同分布数据
 non_iid_alpha: 0.5        # 非独立同分布程度 (值越小越非独立)
@@ -27,3 +27,5 @@ max_grad_norm: 5.0        # 梯度裁剪阈值
 result_dir: "./results"   # 结果保存目录
 num_workers: 4            # 数据加载工作进程数
 test_batch_size: 128      # 测试批次大小
+
+pocket_loss_rate: 0.2

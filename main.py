@@ -96,7 +96,7 @@ def main():
 
     for round in range(config['num_rounds']):
         round_start = time.time()
-        logger.info("\n"+'='*20+f"训练轮次 {round + 1}/{config['num_rounds']}"+'='*20)
+        logger.info(f"\n"+'='*20+f"训练轮次 {round + 1}/{config['num_rounds']}"+'='*20)
 
         # a. 服务器选择客户端
         selected_clients = server.select_clients(

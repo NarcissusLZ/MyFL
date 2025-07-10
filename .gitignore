@@ -1,7 +1,10 @@
 datasets/
 .DS_Store
 .idea/
-__pycache__/
-*.pyc
 config.yaml
 results/
+*.pyc
+__pycache__
+*.pyo
+*.pyd
+*.so

@@ -79,7 +79,7 @@ def main():
             local_dataset=data_subset
         )
     logger.info("服务器向所有客户端下发初始模型...")
-    server.init_model()
+    #server.init_model()
     server.broadcast_model(list(clients.values()))
     logger.info(f"已初始化 {len(clients)} 个客户端")
 
@@ -96,7 +96,7 @@ def main():
 
     for round in range(config['num_rounds']):
         round_start = time.time()
-        logger.info(f"\n====== 训练轮次 {round + 1}/{config['num_rounds']} ======")
+        logger.info(f"\n"+'='*50+"训练轮次 {round + 1}/{config['num_rounds']}"+'='*50)
 
         # a. 服务器选择客户端
         selected_clients = server.select_clients(

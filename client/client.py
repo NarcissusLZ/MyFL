@@ -4,8 +4,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
 from tqdm import tqdm
-import copy
-
 
 class Client:
     def __init__(self, id, config, local_dataset):

@@ -53,38 +53,78 @@ def save_results(config, history, server):
     for i in range(len(history['round'])):
         logger.info(f"轮次 {history['round'][i]}: 准确率={history['accuracy'][i]:.2f}%, 损失={history['loss'][i]:.4f}")
 
-    result_plc(history, result_dir, timestamp)
+    result_plc(history, result_dir, timestamp,config)
 
-def result_plc(history, result_dir, timestamp):
-    logger.info("\n生成训练过程图表...")
+def result_plc(history, result_dir, timestamp, config):
+    """Generate training process chart with English labels"""
+    logger.info("\nGenerating training process chart...")
 
-    plt.figure(figsize=(12, 5))
+    # Extract key parameters from config
+    model_name = config.get('model_name', 'Unspecified')
+    dataset_name = config.get('dataset_name', 'Unspecified')
+    packet_loss_rate = config.get('packet_loss_rate', 0.0)
+    num_clients = config.get('num_clients', 0)
+    client_fraction = config.get('client_fraction', 0.0)
+    local_epochs = config.get('local_epochs', 0)
 
-    # 准确率图表
+    # Create figure
+    fig = plt.figure(figsize=(14, 8))
+
+    # Set title text
+    param_text = (
+        f"Model: {model_name} | Dataset: {dataset_name} | Packet Loss Rate: {packet_loss_rate:.2f} | "
+        f"Total Clients: {num_clients} | Fraction: {client_fraction:.2f} | Local Epochs: {local_epochs}"
+    )
+    fig.suptitle(param_text, fontsize=14, y=0.98)
+    plt.subplots_adjust(top=0.85)
+
+    # Accuracy plot
     plt.subplot(1, 2, 1)
     plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
     plt.title('Training Accuracy', fontsize=14)
-    plt.xlabel('Round', fontsize=12)
+    plt.xlabel('Rounds', fontsize=12)
     plt.ylabel('Accuracy (%)', fontsize=12)
     plt.ylim(0, 100)
+    plt.grid(True, linestyle='--', alpha=0.7)
 
-    # 损失图表
+    # Show final accuracy
+    final_accuracy = history['accuracy'][-1]
+    plt.annotate(f'Final: {final_accuracy:.2f}%',
+                 xy=(history['round'][-1], final_accuracy),
+                 xytext=(-100, -30),
+                 textcoords='offset points',
+                 arrowprops=dict(arrowstyle='->'),
+                 fontsize=12)
+
+    # Loss plot
     plt.subplot(1, 2, 2)
     plt.plot(history['round'], history['loss'], 'r-', marker='s', linewidth=2, markersize=4)
     plt.title('Training Loss', fontsize=14)
-    plt.xlabel('Round', fontsize=12)
+    plt.xlabel('Rounds', fontsize=12)
     plt.ylabel('Loss', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
 
-    plt.tight_layout()
+    # Show final loss
+    final_loss = history['loss'][-1]
+    plt.annotate(f'Final: {final_loss:.4f}',
+                 xy=(history['round'][-1], final_loss),
+                 xytext=(-80, 30),
+                 textcoords='offset points',
+                 arrowprops=dict(arrowstyle='->'),
+                 fontsize=12)
 
-    # 保存图表
+    # Add timestamp watermark
+    fig.text(0.95, 0.01, f'Generated: {timestamp}', fontsize=8,
+             ha='right', va='bottom', alpha=0.5)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+
+    # Save chart
     chart_path = os.path.join(result_dir, f"training_chart_{timestamp}.png")
     plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-    logger.info(f"训练图表保存至: {chart_path}")
+    logger.info(f"Chart saved to: {chart_path}")
 
-    # 显示最终性能摘要
-    final_accuracy = history['accuracy'][-1]
-    final_loss = history['loss'][-1]
-    logger.info(f"\n训练完成 - 最终准确率: {final_accuracy:.2f}%, 最终损失: {final_loss:.4f}")
+    # Show final performance summary
+    logger.info(f"\nTraining completed - Final accuracy: {final_accuracy:.2f}%, Final loss: {final_loss:.4f}")
 
     plt.show()

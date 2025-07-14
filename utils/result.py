@@ -8,14 +8,6 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib import font_manager
 
-# 设置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'WenQuanYi Micro Hei']
-plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-
-# 或者直接设置字体
-matplotlib.rcParams['font.family'] = ['sans-serif']
-matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -60,8 +52,8 @@ def result_plc(history, result_dir, timestamp, config):
     logger.info("\nGenerating training process chart...")
 
     # Extract key parameters from config
-    model_name = config.get('model_name', 'Unspecified')
-    dataset_name = config.get('dataset_name', 'Unspecified')
+    model_name = config.get('model', 'Unspecified')
+    dataset_name = config.get('dataset', 'Unspecified')
     packet_loss_rate = config.get('packet_loss_rate', 0.0)
     num_clients = config.get('num_clients', 0)
     client_fraction = config.get('client_fraction', 0.0)

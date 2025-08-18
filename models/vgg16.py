@@ -13,7 +13,7 @@ def select_device(device_config):
 
 
 # 适配CIFAR-10的VGG配置：第一层96通道适合32x32输入
-vgg = [96, 96, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 'M']
+vgg = [96, 96, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M']
 
 
 class CIFAR10_VGG16(nn.Module):

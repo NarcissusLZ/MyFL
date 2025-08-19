@@ -13,7 +13,7 @@ def select_device(device_config):
 
 
 # 适配CIFAR-10的VGG配置：第一层96通道适合32x32输入
-vgg = [96, 96, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M']
+vgg = [96, 96, 'M', 128, 128, 'M', 256, 256, 256, 'M']
 
 
 class CIFAR10_VGG16(nn.Module):
@@ -25,7 +25,7 @@ class CIFAR10_VGG16(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.dense = nn.Sequential(
-            nn.Linear(512, 4096),
+            nn.Linear(vgg[-2], 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(0.4),
             nn.Linear(4096, 4096),

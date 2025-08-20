@@ -79,7 +79,6 @@ def main():
             local_dataset=data_subset
         )
     logger.info("服务器向所有客户端下发初始模型...")
-    #server.init_model()
     server.broadcast_model(list(clients.values()))
     logger.info(f"已初始化 {len(clients)} 个客户端")
 

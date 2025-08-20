@@ -13,7 +13,7 @@ def select_device(device_config):
 
 
 # 适配CIFAR-10的VGG配置：第一层96通道适合32x32输入
-vgg = [96, 96, 'M', 128, 128, 'M']
+vgg = [96, 96, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
 
 
 class CIFAR10_VGG16(nn.Module):
@@ -105,7 +105,7 @@ class CIFAR100_VGG16(nn.Module):
 
 #用于本地读取测试
 if __name__ == '__main__':
-    model = CIFAR100_VGG16()
+    model = CIFAR10_VGG16()
     # 获取配置参数
     with open("../config.yaml", 'r') as f:
         conf = yaml.safe_load(f)
@@ -118,9 +118,9 @@ if __name__ == '__main__':
     print(next(model.parameters()).device)
     # Calculate and print parameters for each layer
     total_params = 0
-    for name, param in CIFAR100_VGG16().named_parameters():
+    for name, param in CIFAR10_VGG16().named_parameters():
         layer_params = param.numel()
         total_params += layer_params
         print(f"{name}: {layer_params} parameters")
-    total_params_kb = (total_params * 4) / 1024 / 1024
-    print(f"Total model parameters: {total_params_kb:.2f} MB")
+    total_params_mb = (total_params * 4) / 1024 / 1024
+    print(f"Total model parameters: {total_params_mb:.2f} MB")

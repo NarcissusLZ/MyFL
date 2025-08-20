@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-import tqdm
+from tqdm import tqdm
 
 class Client:
     def __init__(self, id, config, local_dataset):

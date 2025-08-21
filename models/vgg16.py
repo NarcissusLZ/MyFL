@@ -67,7 +67,7 @@ class CIFAR100_VGG16(nn.Module):
 
         # CIFAR-100优化的分类器：更强的正则化
         self.dense = nn.Sequential(
-            nn.Linear(512, 4096),
+            nn.Linear(vgg[-2], 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),  # 增加dropout防止过拟合
             nn.Linear(4096, 4096),

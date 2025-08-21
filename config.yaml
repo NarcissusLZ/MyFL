@@ -27,7 +27,7 @@ result_dir: "./results"   # 结果保存目录
 num_workers: 4            # 数据加载工作进程数
 test_batch_size: 128      # 测试批次大小
 
-pocket_loss_rate: 0.2
+packet_loss_rate: 0.2
 
 layers_to_drop:           # 指定要丢弃的层，支持部分名称匹配
   - "features.34"

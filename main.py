@@ -13,6 +13,7 @@ from client.client import Client
 from server.server import Server
 from data.split import split_dataset_to_clients
 from utils.result import *
+from server.fed_avg import fed_avg
 
 def load_config(config_path='config.yaml'):
     """加载配置文件"""
@@ -128,7 +129,8 @@ def main():
 
         # e. 服务器聚合模型更新
         logger.info("服务器聚合模型更新...")
-        server.fed_avg()
+        updated_state_dict = fed_avg(server.global_model, server.client_weights)
+        server.global_model.load_state_dict(updated_state_dict)
 
         # f. 服务器测试全局模型
         logger.info("测试全局模型性能...")

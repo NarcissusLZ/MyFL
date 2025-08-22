@@ -26,7 +26,7 @@ class Client:
         )
 
         print(f"客户端 {self.id} 初始化完成, 设备: {self.device}, 数据量: {len(local_dataset)}")
-        print(f"客户端 {self.id} 等待服务器下发模型...")
+        print(f"客户端 {self.id} 等待服务器下发模型")
 
     def _select_device(self, device_config):
         """选择设备"""
@@ -72,7 +72,7 @@ class Client:
         if self.model is None:
             raise ValueError(f"客户端 {self.id} 模型未初始化，无法进行训练")
 
-        print(f"客户端 {self.id} 开始本地训练...")
+        print(f"客户端 {self.id} 开始本地训练")
         start_time = time.time()
 
         # 设置模型为训练模式

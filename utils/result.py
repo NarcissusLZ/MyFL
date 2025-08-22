@@ -118,7 +118,7 @@ def result_plc(history, result_dir, timestamp, config):
                  fontsize=12)
 
     # Communication per round plot
-    if 'down_communication' in history and 'up_communication' in history:
+    if 'up_communication' in history:
         plt.subplot(2, 2, 3)
         # plt.plot(history['round'], history['down_communication'], 'g-', marker='d', label='Downstream')
         plt.plot(history['round'], history['up_communication'], 'm-', marker='^', label='Upstream')

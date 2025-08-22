@@ -23,9 +23,9 @@ def save_results(config, history, server):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
     # 保存训练历史
-    history_path = os.path.join(result_dir, f"history_{timestamp}.npy")
-    np.save(history_path, history)
-    logger.info(f"训练历史保存至: {history_path}")
+    # history_path = os.path.join(result_dir, f"history_{timestamp}.npy")
+    # np.save(history_path, history)
+    # logger.info(f"训练历史保存至: {history_path}")
 
     # # 保存模型
     # model_path = os.path.join(result_dir, f"global_model_{timestamp}.pth")
@@ -41,17 +41,17 @@ def save_results(config, history, server):
     # 保存通信统计
     comm_stats = server.get_communication_stats()
     logger.info("\n通信统计:")
-    logger.info(f"总下行通信量: {comm_stats['总下行通信量(MB)']:.2f} MB")
+    # logger.info(f"总下行通信量: {comm_stats['总下行通信量(MB)']:.2f} MB")
     logger.info(f"总上行通信量: {comm_stats['总上行通信量(MB)']:.2f} MB")
-    logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
+    # logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
 
     # 将通信量添加到历史记录中
     for i, round_data in enumerate(comm_stats['每轮通信量记录']):
         if i < len(history['round']):
-            history['down_communication'] = history.get('down_communication', []) + [round_data['down_communication']]
+            # history['down_communication'] = history.get('down_communication', []) + [round_data['down_communication']]
             history['up_communication'] = history.get('up_communication', []) + [round_data['up_communication']]
-            history['total_communication'] = history.get('total_communication', []) + [
-                round_data['total_communication']]
+            # history['total_communication'] = history.get('total_communication', []) + [
+            #     round_data['total_communication']]
 
     # 打印最终性能
     logger.info("\n训练轮次性能:")
@@ -121,7 +121,7 @@ def result_plc(history, result_dir, timestamp, config):
     # Communication per round plot
     if 'down_communication' in history and 'up_communication' in history:
         plt.subplot(2, 2, 3)
-        plt.plot(history['round'], history['down_communication'], 'g-', marker='d', label='Downstream')
+        # plt.plot(history['round'], history['down_communication'], 'g-', marker='d', label='Downstream')
         plt.plot(history['round'], history['up_communication'], 'm-', marker='^', label='Upstream')
         plt.title('Communication per Round (MB)', fontsize=14)
         plt.xlabel('Rounds', fontsize=12)

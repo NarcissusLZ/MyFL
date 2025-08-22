@@ -103,9 +103,8 @@ class CIFAR100_VGG16(nn.Module):
 
         return nn.Sequential(*layers)
 
-#用于本地读取测试
 if __name__ == '__main__':
-    model = CIFAR10_VGG16()
+    model = CIFAR100_VGG16()
     # 获取配置参数
     with open("../config.yaml", 'r') as f:
         conf = yaml.safe_load(f)
@@ -116,11 +115,38 @@ if __name__ == '__main__':
     model = model.to(device)  # 统一迁移到目标设备
     print(model)
     print(next(model.parameters()).device)
-    # Calculate and print parameters for each layer
+
+    # 计算并打印每层的参数量及百分比
     total_params = 0
-    for name, param in CIFAR10_VGG16().named_parameters():
+    layer_params_dict = {}
+
+    # 首先计算总参数量
+    for name, param in model.named_parameters():
         layer_params = param.numel()
+        layer_params_dict[name] = layer_params
         total_params += layer_params
-        print(f"{name}: {layer_params} parameters")
+
+    # 按层分组的参数量统计
+    grouped_params = {}
+    for name, param_count in layer_params_dict.items():
+        # 提取主层名称（如features, dense, classifier）
+        main_layer = name.split('.')[0]
+        if main_layer not in grouped_params:
+            grouped_params[main_layer] = 0
+        grouped_params[main_layer] += param_count
+
+    # 打印每层及其参数量和百分比
+    print("\n==== 详细参数统计 ====")
+    for name, param_count in layer_params_dict.items():
+        percentage = (param_count / total_params) * 100
+        print(f"{name}: {param_count:,} 参数 ({percentage:.2f}%)")
+
+    # 打印按主要层分组的统计
+    print("\n==== 主要层参数统计 ====")
+    for layer_name, param_count in grouped_params.items():
+        percentage = (param_count / total_params) * 100
+        print(f"{layer_name}: {param_count:,} 参数 ({percentage:.2f}%)")
+
+    # 总计
     total_params_mb = (total_params * 4) / 1024 / 1024
-    print(f"Total model parameters: {total_params_mb:.2f} MB")
+    print(f"\n总模型参数量: {total_params:,} ({total_params_mb:.2f} MB)")

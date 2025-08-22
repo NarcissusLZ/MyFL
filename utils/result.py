@@ -43,7 +43,7 @@ def save_results(config, history, server):
     logger.info("\n通信统计:")
     # logger.info(f"总下行通信量: {comm_stats['总下行通信量(MB)']:.2f} MB")
     logger.info(f"总上行通信量: {comm_stats['总上行通信量(MB)']:.2f} MB")
-    logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
+    #logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
 
     # 将通信量添加到历史记录中
     for i, round_data in enumerate(comm_stats['每轮通信量记录']):

@@ -71,8 +71,15 @@ def result_plc(history, result_dir, timestamp, config):
     client_fraction = config.get('client_fraction', 0.0)
     local_epochs = config.get('local_epochs', 0)
 
+    # 获取丢失层信息
+    layers_to_drop = config.get('layers_to_drop', [])
+    layers_info = ", ".join(layers_to_drop) if layers_to_drop else "None"
+
     # Create figure
     fig = plt.figure(figsize=(15, 10))
+
+    # 添加丢失层信息
+    dropped_layers_text = f"Dropped Layers: {layers_info}"
 
     # Set title
     param_text = (
@@ -80,7 +87,13 @@ def result_plc(history, result_dir, timestamp, config):
         f"Clients: {num_clients} | Fraction: {client_fraction:.2f} | Local Epochs: {local_epochs}"
     )
     fig.suptitle(param_text, fontsize=14, y=0.98)
+
+    # 在主标题下方添加丢失层信息
+    plt.figtext(0.5, 0.92, dropped_layers_text, ha='center', fontsize=12,
+                bbox={"facecolor": "lightgrey", "alpha": 0.5, "pad": 5})
+
     plt.subplots_adjust(top=0.85, hspace=0.3)
+
 
     # Accuracy plot
     plt.subplot(2, 2, 1)

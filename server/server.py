@@ -157,83 +157,117 @@ class Server:
         return should_drop
 
     def receive_local_model(self, client, model_state_dict, num_samples):
-        """接收客户端上传的模型更新，使用Gilbert-Elliott模型模拟丢包"""
-
+        """接收客户端上传的模型更新，使用Gilbert-Elliott模型模拟丢包并根据传输协议处理重传"""
         client_id = client.id
-        # 获取需要丢弃的层名称列表，如果配置中没有设置，默认为空列表（不指定层）
+        # 获取传输协议类型
+        transport_type = self.config.get('Transport', 'TCP')
+        # 获取需要丢弃的层名称列表
         layers_to_drop = self.config.get('layers_to_drop', [])
-        
-        # 按层存储客户端的更新
+
+        # 初始化客户端的权重记录
         if client_id not in self.client_weights:
             self.client_weights[client_id] = {
                 'state_dict': {},
                 'num_samples': num_samples
             }
-        
-        # 计算上行通信量（初始设为0）
+
+        # 计算上行通信量
         received_model_size = 0
-        
-        # 使用Gilbert-Elliott模型决定是否丢弃指定的层
-        should_drop_packet = self._gilbert_elliott_packet_loss(client, layers_to_drop)
-        
-        # 记录被丢弃的层
-        dropped_layers = []
-        
+
         # 遍历模型的每一层
         for key, param in model_state_dict.items():
-            # 判断当前层是否在要丢弃的列表中
-            is_target_layer = False
-            if layers_to_drop:
-                for layer_pattern in layers_to_drop:
-                    # 将层名拆分为组件，例如 'dense.3.weight' -> ['dense', '3', 'weight']
-                    key_parts = key.split('.')
-                    pattern_parts = layer_pattern.split('.')
-                    
-                    # 检查模式的所有部分是否匹配层名的对应部分
-                    if len(pattern_parts) <= len(key_parts):
-                        matches = True
-                        for i, part in enumerate(pattern_parts):
-                            if key_parts[i] != part:
-                                matches = False
-                                break
-                        if matches:
-                            is_target_layer = True
-                            break
-            
-            # 如果是目标层且Gilbert-Elliott模型决定丢弃，则跳过该层
-            if is_target_layer and should_drop_packet:
-                dropped_layers.append(key)
-                continue
-
-            # 确保参数在服务器设备上
-            device_param = param.to(self.device)
-            self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(device_param)
-            layer_size = param.nelement() * 4
-            received_model_size += layer_size
-
-            # 否则保存该层并计算通信量
-            self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param)
+            # 计算当前层的数据大小
             layer_size = param.nelement() * 4  # float32 = 4字节
+
+            # 检查当前层是否在特殊处理列表中
+            is_in_drop_list = False
+            for layer_pattern in layers_to_drop:
+                if layer_pattern in key:
+                    is_in_drop_list = True
+                    break
+
+            # 使用Gilbert-Elliott模型决定是否丢包
+            is_packet_lost = self._gilbert_elliott_packet_loss(client, [key])
+
+            # 初始传输计入通信量
             received_model_size += layer_size
 
-        # 如果决定丢弃且有目标层，打印丢包信息
-        if dropped_layers:
-            state_info = "坏状态" if self.gilbert_elliott_states[client_id] == 1 else "好状态"
-            print(f"⚠️ Gilbert-Elliott丢包 (当前{state_info})：客户端 {client_id} 的以下层被丢弃: {dropped_layers}")
-            print(f"客户端距离: {client.distance}米, 丢包率: {client.packet_loss:.2%}")
+            # 根据传输协议处理丢包和重传
+            if transport_type == 'TCP':
+                # TCP模式：丢包后重传，最多重传16次
+                retries = 0
+                max_retries = 16
+
+                while is_packet_lost and retries < max_retries:
+                    # 重传
+                    retries += 1
+                    print(f"TCP模式：客户端{client_id}的层{key}丢包，尝试重传 ({retries}/{max_retries})")
+
+                    # 每次重传都计入通信流量
+                    received_model_size += layer_size
+
+                    # 重传可能再次丢包，继续使用Gilbert-Elliott模型
+                    is_packet_lost = self._gilbert_elliott_packet_loss(client, [key])
+
+                if not is_packet_lost:
+                    # 传输成功
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                    print(f"TCP模式：客户端{client_id}的层{key}成功接收，总传输次数：{retries + 1}")
+                else:
+                    print(f"TCP模式：客户端{client_id}的层{key}传输失败，达到最大重传次数")
+
+            elif transport_type == 'UDP':
+                # UDP模式：丢包后不重传
+                if not is_packet_lost:
+                    # 传输成功
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                    print(f"UDP模式：客户端{client_id}的层{key}成功接收")
+                else:
+                    print(f"UDP模式：客户端{client_id}的层{key}丢包，不重传")
+
+            elif transport_type == 'LTQ':
+                # LTQ模式：只对非layers_to_drop的层进行重传
+                if is_packet_lost:
+                    if not is_in_drop_list:
+                        # 非drop列表中的层需要重传
+                        retries = 0
+                        max_retries = 16
+
+                        while is_packet_lost and retries < max_retries:
+                            # 重传计入通信流量
+                            received_model_size += layer_size
+                            retries += 1
+                            print(
+                                f"LTQ模式：客户端{client_id}的层{key}丢包(非drop列表)，尝试重传 ({retries}/{max_retries})")
+
+                            # 重传可能再次丢包，继续使用Gilbert-Elliott模型
+                            is_packet_lost = self._gilbert_elliott_packet_loss(client, [key])
+
+                        if not is_packet_lost:
+                            # 重传成功
+                            self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                            print(f"LTQ模式：客户端{client_id}的层{key}成功接收，总传输次数：{retries + 1}")
+                        else:
+                            print(f"LTQ模式：客户端{client_id}的层{key}传输失败，达到最大重传次数")
+                    else:
+                        # 在drop列表中的层不重传
+                        print(f"LTQ模式：客户端{client_id}的层{key}在丢弃列表中且丢包，不重传")
+                else:
+                    # 首次传输成功
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                    print(f"LTQ模式：客户端{client_id}的层{key}成功接收")
 
         # 更新通信量统计
         self.total_up_communication += received_model_size
         self.round_up_communication += received_model_size
-        
+
         # 检查是否有任何层被成功接收
         if not self.client_weights[client_id]['state_dict']:
-            print(f"客户端 {client_id} 的所有层都被丢弃，无法使用该客户端的更新")
-            # 删除该客户端的记录
+            print(f"客户端 {client_id} 的所有层传输失败，无法使用该客户端的更新")
             del self.client_weights[client_id]
             return False
-        
-        print(f"服务器已接收客户端 {client_id} 的部分更新，接收数据量: {received_model_size / 1024 / 1024:.2f} MB")
+
+        print(f"服务器已接收客户端 {client_id} 的更新，接收数据量: {received_model_size / 1024 / 1024:.2f} MB")
         return True
 
     def test_model(self):

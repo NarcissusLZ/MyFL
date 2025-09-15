@@ -125,7 +125,7 @@ class Server:
         # 初始化客户端状态（如果是第一次）
         if client_id not in self.gilbert_elliott_states:
             # 随机初始化为好状态(0)或坏状态(1)
-            self.gilbert_elliott_states[client_id] = 0 if random.random() > self.lam else 1
+            self.gilbert_elliott_states[client_id] = 0 if random.random() > client_loss_rate else 1
         
         current_state = self.gilbert_elliott_states[client_id]
 

@@ -16,7 +16,7 @@ num_rounds: 100           # 全局训练轮次
 num_clients: 100           # 客户端总数
 client_fraction: 0.4      # 每轮选择的客户端比例 (choose_number/num_clients = 10/20 = 0.5)
 non_iid: True             # 是否使用非独立同分布数据
-non_iid_alpha: 0.5        # 非独立同分布程度 (值越小越非独立)
+non_iid_alpha: 0.1        # 非独立同分布程度 (值越小越非独立)
 
 # 模型配置
 model: "VGG16"    # 模型架构
@@ -32,5 +32,4 @@ packet_loss_rate: 0.2
 Transport: TCP            #TCP/UDP/LTQ
 
 layers_to_drop:           # 指定要丢弃的层，支持部分名称匹配
-  - "dense.3.weight"
-  - "dense.3.bias"
+  - "dense.3"

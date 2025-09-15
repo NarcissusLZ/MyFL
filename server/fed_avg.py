@@ -26,21 +26,20 @@ def fed_avg(global_model, client_weights):
     print(f"参与聚合的客户端数量：{len(client_weights)}")
     print(f"样本总数：{total_weight}")
 
-    # 使用加权平均聚合更新
-    for client_id, weights in client_weights.items():
-        client_state = weights['state_dict']
-        weight = weights['num_samples']
+    # 对每个参数，重置并累加所有客户端的加权贡献
+    for key in global_state.keys():
+        # 重置参数，从零开始累加
+        global_state[key] = torch.zeros_like(global_state[key], device=server_device)
 
-        # 显示每个客户端的贡献权重
-        contribution = (weight / total_weight) * 100
-        print(f"客户端 {client_id} 贡献：{contribution:.2f}%，样本数：{weight}")
+        # 累加每个客户端的加权贡献
+        for client_id, weights in client_weights.items():
+            client_state = weights['state_dict']
+            weight = weights['num_samples']
 
-        # 遍历所有参数，进行加权平均
-        for key in global_state.keys():
             if key in client_state:
-                # 确保张量在同一设备上
+                # 确保张量在服务器设备上
                 update = client_state[key].to(server_device)
-                global_state[key] = global_state[key] + (weight / total_weight) * update
+                global_state[key] += (weight / total_weight) * update
 
     print("模型聚合完成")
     return global_state

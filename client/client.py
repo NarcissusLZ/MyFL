@@ -7,10 +7,11 @@ from tqdm import tqdm
 import random
 
 class Client:
-    def __init__(self, id, config, local_dataset):
+    def __init__(self, id, config, local_dataset, gpu_id=None):
         self.id = id
         self.config = config
         self.local_dataset = local_dataset
+        self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
         self.distance = random.randint(1,50)
         self.packet_loss = self.distance * 0.01
@@ -32,8 +33,10 @@ class Client:
         print(f"客户端 {self.id} 等待服务器下发模型")
 
     def _select_device(self, device_config):
-        """选择设备"""
+        """选择设备，支持指定GPU ID"""
         if device_config == 'cuda' and torch.cuda.is_available():
+            if self.gpu_id is not None:
+                return torch.device(f'cuda:{self.gpu_id}')
             return torch.device('cuda')
         elif device_config == 'mps' and torch.backends.mps.is_available():
             return torch.device('mps')

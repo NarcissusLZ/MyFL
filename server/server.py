@@ -8,8 +8,8 @@ import random
 class Server:
     def __init__(self, config, test_dataset):
         self.config = config
-        self.device = self._select_device(config['device'])
-        
+        self.device = torch.device('cuda:0') if torch.cuda.is_available() else self._select_device(config['device'])
+
         # 初始化全局模型
         self.global_model = self.init_model()
         self.global_model.to(self.device)
@@ -204,7 +204,13 @@ class Server:
             if is_target_layer and should_drop_packet:
                 dropped_layers.append(key)
                 continue
-            
+
+            # 确保参数在服务器设备上
+            device_param = param.to(self.device)
+            self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(device_param)
+            layer_size = param.nelement() * 4
+            received_model_size += layer_size
+
             # 否则保存该层并计算通信量
             self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param)
             layer_size = param.nelement() * 4  # float32 = 4字节

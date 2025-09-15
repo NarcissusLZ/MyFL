@@ -30,6 +30,13 @@ def main():
         logger.info(f"{key}: {value}")
     logger.info("=" * 50)
 
+    # 检测可用的GPU数量
+    available_gpus = torch.cuda.device_count()
+    logger.info(f"检测到 {available_gpus} 个可用GPU")
+
+    if available_gpus <= 1:
+        logger.warning("GPU数量不足，无法为客户端分配独立GPU。将使用默认设备。")
+
     # 2. 准备数据集
     logger.info("准备数据集...")
     train_dataset, test_dataset = get_dataset(
@@ -73,12 +80,23 @@ def main():
     # 5. 初始化客户端
     logger.info("初始化客户端...")
     clients = {}
-    for client_id, data_subset in client_data.items():
+    for i, (client_id, data_subset) in enumerate(client_data.items()):
+        # 为客户端分配GPU ID，跳过GPU 0（保留给服务器）
+        gpu_id = None
+        if available_gpus > 1:
+            gpu_id = (i % (available_gpus - 1)) + 1  # 从GPU 1开始循环分配
+
         clients[client_id] = Client(
             id=client_id,
             config=config,
-            local_dataset=data_subset
+            local_dataset=data_subset,
+            gpu_id=gpu_id
         )
+
+        if gpu_id is not None:
+            logger.info(f"客户端 {client_id} 分配到GPU {gpu_id}")
+
+
     logger.info("服务器向所有客户端下发初始模型...")
     server.broadcast_model(list(clients.values()))
     logger.info(f"已初始化 {len(clients)} 个客户端")

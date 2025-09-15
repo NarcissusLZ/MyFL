@@ -116,13 +116,14 @@ def main():
             model_state, num_samples = client.local_train()
             client_updates[client.id] = {
                 'model_state': model_state,
-                'num_samples': num_samples
+                'num_samples': num_samples,
+                'client': client  # 保存客户端对象引用
             }
 
         # d. 客户端上传模型更新给服务器
         for client_id, update in client_updates.items():
             server.receive_local_model(
-                client_id,
+                update['client'],  # 传递客户端对象而非ID
                 update['model_state'],
                 update['num_samples']
             )

@@ -38,20 +38,10 @@ class Server:
         print(f"服务器初始化完成, 设备: {self.device}")
 
     def _init_gilbert_elliott_params(self):
-        """初始化Gilbert-Elliott模型参数"""
-        # 从配置中获取丢包率，如果没有则使用默认值0.0
-        base_loss_rate = self.config.get('packet_loss_rate', 0.0)
-        
-        if base_loss_rate > 0:
-            # Gilbert-Elliott模型参数
-            self.lam = base_loss_rate  # 基础丢包率
-            self.good_to_bad = 0.5 * self.lam  # 好状态→坏状态转移概率
-            self.bad_to_good = 0.5 - self.good_to_bad  # 坏状态→好状态转移概率
-            print(f"Gilbert-Elliott参数初始化: λ={self.lam:.3f}, P(G→B)={self.good_to_bad:.3f}, P(B→G)={self.bad_to_good:.3f}")
-        else:
-            self.lam = 0
-            self.good_to_bad = 0
-            self.bad_to_good = 0
+        """初始化Gilbert-Elliott模型状态字典"""
+        # 只初始化状态字典，不再设置全局丢包率参数
+        self.gilbert_elliott_states = {}  # 每个客户端的网络状态
+        print("已初始化Gilbert-Elliott模型状态字典，将使用客户端各自的丢包率")
 
     def get_model_size(self):
         """计算模型参数大小（字节）"""
@@ -123,24 +113,32 @@ class Server:
         print(f"本轮选中 {num_selected} 个客户端")
         return selected_clients
 
-    def _gilbert_elliott_packet_loss(self, client_id, layers_to_check):
+    def _gilbert_elliott_packet_loss(self, client, layers_to_check):
         """使用Gilbert-Elliott模型判断是否丢包"""
-        if self.lam == 0:
-            return False  # 没有配置丢包率，不丢包
-        
+
+        client_id = client.id
+        client_loss_rate = client.packet_loss
+
+        if client_loss_rate == 0:
+            return False  # 没有丢包率，不丢包
+
         # 初始化客户端状态（如果是第一次）
         if client_id not in self.gilbert_elliott_states:
             # 随机初始化为好状态(0)或坏状态(1)
             self.gilbert_elliott_states[client_id] = 0 if random.random() > self.lam else 1
         
         current_state = self.gilbert_elliott_states[client_id]
-        
+
+        # 根据客户端的丢包率计算转移概率
+        good_to_bad = 0.5 * client_loss_rate
+        bad_to_good = 0.5 - good_to_bad
+
         # 生成随机数用于状态转移判断
         rand = random.random()
-        
+
         # 根据当前状态和转移概率决定是否丢包
         if current_state == 0:  # 当前是好状态
-            if rand <= self.good_to_bad:
+            if rand <= good_to_bad:
                 # 转为坏状态
                 self.gilbert_elliott_states[client_id] = 1
                 should_drop = True
@@ -148,18 +146,20 @@ class Server:
                 # 保持好状态
                 should_drop = False
         else:  # 当前是坏状态
-            if rand <= 1 - self.bad_to_good:
+            if rand <= 1 - bad_to_good:
                 # 保持坏状态
                 should_drop = True
             else:
                 # 转为好状态
                 self.gilbert_elliott_states[client_id] = 0
                 should_drop = False
-        
+
         return should_drop
 
-    def receive_local_model(self, client_id, model_state_dict, num_samples):
+    def receive_local_model(self, client, model_state_dict, num_samples):
         """接收客户端上传的模型更新，使用Gilbert-Elliott模型模拟丢包"""
+
+        client_id = client.id
         # 获取需要丢弃的层名称列表，如果配置中没有设置，默认为空列表（不指定层）
         layers_to_drop = self.config.get('layers_to_drop', [])
         
@@ -174,7 +174,7 @@ class Server:
         received_model_size = 0
         
         # 使用Gilbert-Elliott模型决定是否丢弃指定的层
-        should_drop_packet = self._gilbert_elliott_packet_loss(client_id, layers_to_drop)
+        should_drop_packet = self._gilbert_elliott_packet_loss(client, layers_to_drop)
         
         # 记录被丢弃的层
         dropped_layers = []
@@ -209,12 +209,13 @@ class Server:
             self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param)
             layer_size = param.nelement() * 4  # float32 = 4字节
             received_model_size += layer_size
-        
+
         # 如果决定丢弃且有目标层，打印丢包信息
         if dropped_layers:
             state_info = "坏状态" if self.gilbert_elliott_states[client_id] == 1 else "好状态"
             print(f"⚠️ Gilbert-Elliott丢包 (当前{state_info})：客户端 {client_id} 的以下层被丢弃: {dropped_layers}")
-        
+            print(f"客户端距离: {client.distance}米, 丢包率: {client.packet_loss:.2%}")
+
         # 更新通信量统计
         self.total_up_communication += received_model_size
         self.round_up_communication += received_model_size

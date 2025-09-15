@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
 from tqdm import tqdm
+import random
 
 class Client:
     def __init__(self, id, config, local_dataset):
@@ -11,6 +12,8 @@ class Client:
         self.config = config
         self.local_dataset = local_dataset
         self.device = self._select_device(config['device'])
+        self.distance = random.randint(1,50)
+        self.packet_loss = self.distance * 0.01
 
         # 声明模型，等待下发
         self.model = None

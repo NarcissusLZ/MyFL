@@ -126,7 +126,7 @@ class CIFAR100_ResNet18(nn.Module):
 
 # 用于本地读取测试
 if __name__ == '__main__':
-    model = CIFAR100_ResNet18()
+    model = CIFAR10_ResNet18()
     # 获取配置参数
     with open("../config.yaml", 'r') as f:
         conf = yaml.safe_load(f)

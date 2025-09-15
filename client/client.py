@@ -78,6 +78,10 @@ class Client:
         if self.model is None:
             raise ValueError(f"客户端 {self.id} 模型未初始化，无法进行训练")
 
+        # 检查数据加载器是否为空或不足一个 batch
+        if len(self.train_loader) == 0:
+            print(f"客户端 {self.id} 的数据加载器为空，跳过训练")
+            return None, 0
         print(f"客户端 {self.id} 开始本地训练")
         start_time = time.time()
 

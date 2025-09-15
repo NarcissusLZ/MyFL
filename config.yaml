@@ -29,5 +29,7 @@ test_batch_size: 128      # 测试批次大小
 
 packet_loss_rate: 0.2
 
+Transport: TCP            #TCP/UDP/LTQ
+
 layers_to_drop:           # 指定要丢弃的层，支持部分名称匹配
   - "dense.3"

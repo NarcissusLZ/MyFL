@@ -75,8 +75,6 @@ class Client:
 
     def local_train(self):
         """在本地数据集上训练模型"""
-        if self.model is None:
-            raise ValueError(f"客户端 {self.id} 模型未初始化，无法进行训练")
 
         # 检查数据加载器是否为空或不足一个 batch
         if len(self.train_loader) == 0:

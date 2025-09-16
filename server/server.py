@@ -216,7 +216,7 @@ class Server:
             while is_drop_list_lost and retries_drop < max_retries and drop_list_layers:
                 # 重传
                 retries_drop += 1
-                print(f"TCP模式：客户端{client_id}的drop列表层丢包，尝试重传 ({retries_drop}/{max_retries})")
+                print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})")
                 
                 # 每次重传都计入通信流量
                 received_model_size += drop_list_size
@@ -224,12 +224,12 @@ class Server:
                 # 重传可能再次丢包
                 is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
             
-            # 处理普通层
+            # 处理关键层
             retries_normal = 0
             while is_normal_lost and retries_normal < max_retries and normal_layers:
                 # 重传
                 retries_normal += 1
-                print(f"TCP模式：客户端{client_id}的普通层丢包，尝试重传 ({retries_normal}/{max_retries})")
+                print(f"TCP模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})")
                 
                 # 每次重传都计入通信流量
                 received_model_size += normal_size
@@ -241,48 +241,48 @@ class Server:
             if not is_drop_list_lost:
                 for key, param in drop_list_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"TCP模式：客户端{client_id}的drop列表层成功接收，总传输次数：{retries_drop + 1}")
+                print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}")
             else:
-                print(f"TCP模式：客户端{client_id}的drop列表层传输失败，达到最大重传次数")
+                print(f"TCP模式：客户端{client_id}的鲁棒层传输失败，达到最大重传次数")
                 
             if not is_normal_lost:
                 for key, param in normal_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"TCP模式：客户端{client_id}的普通层成功接收，总传输次数：{retries_normal + 1}")
+                print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
             else:
-                print(f"TCP模式：客户端{client_id}的普通层传输失败，达到最大重传次数")
+                print(f"TCP模式：客户端{client_id}的关键层传输失败，达到最大重传次数")
                 
         elif transport_type == 'UDP':
             # UDP模式：丢包后不重传
             if not is_drop_list_lost and drop_list_layers:
-                # drop列表层传输成功
+                # 鲁棒层传输成功
                 for key, param in drop_list_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"UDP模式：客户端{client_id}的drop列表层成功接收")
+                print(f"UDP模式：客户端{client_id}的鲁棒层成功接收")
             elif drop_list_layers:
-                print(f"UDP模式：客户端{client_id}的drop列表层丢包，不重传")
+                print(f"UDP模式：客户端{client_id}的鲁棒层丢包，不重传")
             
             if not is_normal_lost and normal_layers:
-                # 普通层传输成功
+                # 关键层传输成功
                 for key, param in normal_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"UDP模式：客户端{client_id}的普通层成功接收")
+                print(f"UDP模式：客户端{client_id}的关键层成功接收")
             elif normal_layers:
-                print(f"UDP模式：客户端{client_id}的普通层丢包，不重传")
+                print(f"UDP模式：客户端{client_id}的关键层丢包，不重传")
                 
         elif transport_type == 'LTQ':
             # LTQ模式：只对非drop列表的层进行重传
             if is_drop_list_lost and drop_list_layers:
                 # drop列表中的层不重传
-                print(f"LTQ模式：客户端{client_id}的drop列表层丢包，不重传")
+                print(f"LTQ模式：客户端{client_id}的鲁棒层丢包，不重传")
             elif drop_list_layers:
                 # 首次传输成功
                 for key, param in drop_list_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"LTQ模式：客户端{client_id}的drop列表层成功接收")
+                print(f"LTQ模式：客户端{client_id}的鲁棒层成功接收")
                 
             if is_normal_lost and normal_layers:
-                # 普通层需要重传
+                # 关键层需要重传
                 retries_normal = 0
                 max_retries = 16
                 
@@ -290,7 +290,7 @@ class Server:
                     # 重传计入通信流量
                     received_model_size += normal_size
                     retries_normal += 1
-                    print(f"LTQ模式：客户端{client_id}的普通层丢包，尝试重传 ({retries_normal}/{max_retries})")
+                    print(f"LTQ模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})")
                     
                     # 重传可能再次丢包
                     is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
@@ -299,14 +299,14 @@ class Server:
                     # 重传成功
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"LTQ模式：客户端{client_id}的普通层成功接收，总传输次数：{retries_normal + 1}")
+                    print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
                 else:
-                    print(f"LTQ模式：客户端{client_id}的普通层传输失败，达到最大重传次数")
+                    print(f"LTQ模式：客户端{client_id}的关键层传输失败，达到最大重传次数")
             elif normal_layers:
                 # 首次传输成功
                 for key, param in normal_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"LTQ模式：客户端{client_id}的普通层成功接收")
+                print(f"LTQ模式：客户端{client_id}的关键层成功接收")
 
         # 更新通信量统计
         self.total_up_communication += received_model_size

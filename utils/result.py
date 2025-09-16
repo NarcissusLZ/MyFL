@@ -66,7 +66,7 @@ def result_plc(history, result_dir, timestamp, config):
     # Extract key parameters from config
     model_name = config.get('model', 'Unspecified')
     dataset_name = config.get('dataset', 'Unspecified')
-    packet_loss_rate = config.get('packet_loss_rate', 0.0)
+    Transport = config.get('Transport', 0.0)
     num_clients = config.get('num_clients', 0)
     client_fraction = config.get('client_fraction', 0.0)
     local_epochs = config.get('local_epochs', 0)
@@ -83,7 +83,7 @@ def result_plc(history, result_dir, timestamp, config):
 
     # Set title
     param_text = (
-        f"Model: {model_name} | Dataset: {dataset_name} | Packet Loss Rate: {packet_loss_rate:.2f} | "
+        f"Model: {model_name} | Dataset: {dataset_name} | Packet Loss Rate: {Transport} | "
         f"Clients: {num_clients} | Fraction: {client_fraction:.2f} | Local Epochs: {local_epochs}"
     )
     fig.suptitle(param_text, fontsize=14, y=0.98)

@@ -14,7 +14,7 @@ class Client:
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
         self.distance = random.randint(1,50)
-        self.packet_loss = self.distance * 0.001
+        self.packet_loss = self.distance * 0.005+0.05
 
         # 声明模型，等待下发
         self.model = None

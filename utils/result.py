@@ -83,7 +83,7 @@ def result_plc(history, result_dir, timestamp, config):
 
     # Set title
     param_text = (
-        f"Model: {model_name} | Dataset: {dataset_name} | Packet Loss Rate: {Transport} | "
+        f"Model: {model_name} | Dataset: {dataset_name} | Transport: {Transport} | "
         f"Clients: {num_clients} | Fraction: {client_fraction:.2f} | Local Epochs: {local_epochs}"
     )
     fig.suptitle(param_text, fontsize=14, y=0.98)

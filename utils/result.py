@@ -158,6 +158,13 @@ def result_plc(history, result_dir, timestamp, config):
             plt.ylabel('Transmission Time (s)', fontsize=12)
             plt.grid(True, linestyle='--', alpha=0.7)
 
+            # 添加总传输时间标注
+            total_time = np.sum(history['transmission_time'])
+            plt.text(0.05, 0.95, f'Total: {total_time:.4f}s',
+                     transform=plt.gca().transAxes,
+                     bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
+                     fontsize=12, verticalalignment='top')
+
             # 显示平均传输时间
             avg_time = np.mean(history['transmission_time'])
             plt.axhline(y=avg_time, color='red', linestyle='--', alpha=0.7, label=f'Average: {avg_time:.4f}s')

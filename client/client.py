@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import time
+import time,math
 from tqdm import tqdm
 import random
 
@@ -15,6 +15,16 @@ class Client:
         self.device = self._select_device(config['device'])
         self.distance = random.randint(1,50)
         self.packet_loss = self.distance * 0.005+0.05
+
+        # 通信参数
+        self.tx_power = 0.1  # 发射功率 100mW = 0.1W
+        self.frequency = 2.4e9  # 频率 2.4GHz
+        self.bandwidth = 20e6  # 带宽 20MHz
+        self.noise_power = self._calculate_noise_power()
+
+        # 传输统计
+        self.total_transmission_time = 0.0
+        self.transmission_attempts = 0
 
         # 声明模型，等待下发
         self.model = None
@@ -30,7 +40,54 @@ class Client:
         )
 
         print(f"客户端 {self.id} 初始化完成, 设备: {self.device}, 数据量: {len(local_dataset)}")
+        print(f"客户端 {self.id} 距离: {self.distance}m, 丢包率: {self.packet_loss:.3f}")
         print(f"客户端 {self.id} 等待服务器下发模型")
+
+    def _calculate_noise_power(self):
+        """计算噪声功率（加性高斯白噪声）"""
+        # 热噪声功率 = k * T * B
+        # k = 1.38e-23 (玻尔兹曼常数)
+        # T = 290K (室温)
+        # B = 带宽
+        k_boltzmann = 1.38e-23
+        temperature = 290  # K
+        noise_power = k_boltzmann * temperature * self.bandwidth
+        return noise_power
+
+    def _calculate_path_loss(self):
+        """计算自由空间路径损耗"""
+        # 自由空间路径损耗公式: L = (4πdf/c)²
+        # 其中 d是距离，f是频率，c是光速
+        c = 3e8  # 光速
+        path_loss_linear = (4 * math.pi * self.distance * self.frequency / c) ** 2
+        return path_loss_linear
+
+    def _calculate_received_power(self):
+        """计算接收功率"""
+        path_loss = self._calculate_path_loss()
+        received_power = self.tx_power / path_loss
+        return received_power
+
+    def _calculate_snr(self):
+        """计算信噪比"""
+        received_power = self._calculate_received_power()
+        snr = received_power / self.noise_power
+        return snr
+
+    def _calculate_data_rate(self):
+        """使用香农公式计算数据传输速度"""
+        snr = self._calculate_snr()
+        # 香农公式: C = B * log2(1 + SNR)
+        data_rate = self.bandwidth * math.log2(1 + snr)
+        return data_rate
+
+    def calculate_transmission_time(self, data_size_bytes):
+        """计算单次传输时间（不考虑重传，由服务器端控制重传逻辑）"""
+        data_rate = self._calculate_data_rate()  # bps
+        transmission_time = (data_size_bytes * 8) / data_rate  # 转换为比特再除以速率
+
+        print(f"客户端 {self.id} 传输 {data_size_bytes / 1024 / 1024:.2f} MB，传输时间: {transmission_time:.4f}s")
+        return transmission_time, 1  # 返回传输时间和传输次数(1)
 
     def _select_device(self, device_config):
         """选择设备，支持指定GPU ID"""

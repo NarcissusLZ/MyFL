@@ -146,6 +146,9 @@ def main():
                 update['num_samples']
             )
 
+        # 记录本轮最大传输时间（在聚合前）
+        server.finalize_round_transmission_time()
+
         # e. 服务器聚合模型更新
         logger.info("服务器聚合模型更新...")
         updated_state_dict = fed_avg(server.global_model, server.client_weights)

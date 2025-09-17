@@ -27,6 +27,10 @@ class Server:
         # self.round_down_communication = 0  # 当前轮次下行通信量
         self.round_up_communication = 0  # 当前轮次上行通信量
         self.communication_history = []  # 每轮通信量记录
+
+        # 添加传输时间统计
+        self.round_transmission_times = {}  # 当前轮次各客户端传输时间
+        self.max_transmission_times = []  # 每轮最大传输时间记录
         
         # 记录聚合权重
         self.client_weights = {}
@@ -222,8 +226,7 @@ class Server:
                     retrans_time, _ = client.calculate_transmission_time(drop_list_size)
                     total_transmission_time += retrans_time
                     actual_received_size += drop_list_size
-                    print(
-                        f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.4f}s")
+                    print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.4f}s")
                     is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
 
                 if not is_drop_list_lost:
@@ -318,20 +321,56 @@ class Server:
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.4f}s")
 
+        # 记录该客户端的传输时间
+        self.round_transmission_times[client_id] = total_transmission_time
+
         # 更新通信量统计（只计算实际传输的字节数）
         self.total_up_communication += actual_received_size
         self.round_up_communication += actual_received_size
 
-        # 检查是否有任何层被成功接收
         if not self.client_weights[client_id]['state_dict']:
             print(f"客户端 {client_id} 的所有层传输失败，无法使用该客户端的更新")
             del self.client_weights[client_id]
+            if client_id in self.round_transmission_times:
+                del self.round_transmission_times[client_id]
             return False
 
         print(f"服务器已接收客户端 {client_id} 的更新:")
         print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
         print(f"  总传输时间: {total_transmission_time:.4f}s")
         return True
+
+    def finalize_round_transmission_time(self):
+        """完成本轮传输，记录最大传输时间"""
+        if self.round_transmission_times:
+            max_time = max(self.round_transmission_times.values())
+            max_client = max(self.round_transmission_times, key=self.round_transmission_times.get)
+            self.max_transmission_times.append(max_time)
+
+            print(f"本轮传输完成，最慢客户端: {max_client}，传输时间: {max_time:.4f}s")
+            print(f"所有客户端传输时间: {self.round_transmission_times}")
+        else:
+            self.max_transmission_times.append(0.0)
+
+    def next_round(self):
+        """准备下一轮训练"""
+        # 记录本轮通信量
+        self.communication_history.append({
+            'up_communication': self.round_up_communication / (1024 * 1024),  # MB
+        })
+
+        # 重置本轮统计
+        self.round_up_communication = 0
+        self.round_transmission_times = {}  # 清空本轮传输时间记录
+        self.client_weights = {}
+
+    def get_communication_stats(self):
+        """获取通信统计信息"""
+        return {
+            "总上行通信量(MB)": self.total_up_communication / (1024 * 1024),
+            "每轮通信量记录": self.communication_history,
+            "每轮最大传输时间": self.max_transmission_times  # 新增传输时间记录
+        }
 
     def test_model(self):
         """在测试集上评估全局模型"""
@@ -359,28 +398,3 @@ class Server:
         
         print(f"测试结果 | 损失: {avg_loss:.4f} | 准确率: {accuracy:.2f}%")
         return {'loss': avg_loss, 'accuracy': accuracy}
-
-    def next_round(self):
-        """准备下一轮训练"""
-        # 记录本轮通信量
-        self.communication_history.append({
-            #'down_communication': self.round_down_communication / (1024 * 1024),  # MB
-            'up_communication': self.round_up_communication / (1024 * 1024),  # MB
-            #'total_communication': (self.round_down_communication + self.round_up_communication) / (1024 * 1024)  # MB
-        })
-        
-        # 重置本轮通信量统计
-        # self.round_down_communication = 0
-        self.round_up_communication = 0
-        
-        # 清除客户端权重
-        self.client_weights = {}
-
-    def get_communication_stats(self):
-        """获取通信统计信息"""
-        return {
-            # "总下行通信量(MB)": self.total_down_communication / (1024 * 1024),
-            "总上行通信量(MB)": self.total_up_communication / (1024 * 1024),
-            # "总通信量(MB)": (self.total_down_communication + self.total_up_communication) / (1024 * 1024),
-            "每轮通信量记录": self.communication_history
-        }

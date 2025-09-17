@@ -45,12 +45,13 @@ def save_results(config, history, server):
     logger.info(f"总上行通信量: {comm_stats['总上行通信量(MB)']:.2f} MB")
     #logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
 
-    # 将通信量添加到历史记录中
+    # 将通信量和传输时间添加到历史记录中
     for i, round_data in enumerate(comm_stats['每轮通信量记录']):
         if i < len(history['round']):
             history['up_communication'] = history.get('up_communication', []) + [round_data['up_communication']]
-            # 总通信量等于上行通信量
-            history['total_communication'] = history.get('total_communication', []) + [round_data['up_communication']]
+
+    # 添加传输时间到历史记录
+    history['transmission_time'] = comm_stats['每轮最大传输时间']
 
     # 打印最终性能
     logger.info("\n训练轮次性能:")
@@ -148,15 +149,19 @@ def result_plc(history, result_dir, timestamp, config):
                  bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
                  fontsize=12, verticalalignment='top')
 
-    # Cumulative communication plot
-    if 'up_communication' in history:  # 使用上行通信量
-        plt.subplot(2, 2, 4)
-        cumulative_comm = np.cumsum(history['up_communication'])  # 使用上行通信量
-        plt.plot(history['round'], cumulative_comm, 'c-', marker='*', linewidth=2)
-        plt.title('Cumulative Communication (MB)', fontsize=14)
-        plt.xlabel('Rounds', fontsize=12)
-        plt.ylabel('Cumulative Communication (MB)', fontsize=12)
-        plt.grid(True, linestyle='--', alpha=0.7)
+        # 传输时间图 (替换累积通信量图)
+        if 'transmission_time' in history and history['transmission_time']:
+            plt.subplot(2, 2, 4)
+            plt.plot(history['round'], history['transmission_time'], 'orange', marker='D', linewidth=2, markersize=4)
+            plt.title('Transmission Time per Round (s)', fontsize=14)
+            plt.xlabel('Rounds', fontsize=12)
+            plt.ylabel('Transmission Time (s)', fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.7)
+
+            # 显示平均传输时间
+            avg_time = np.mean(history['transmission_time'])
+            plt.axhline(y=avg_time, color='red', linestyle='--', alpha=0.7, label=f'Average: {avg_time:.4f}s')
+            plt.legend()
 
 
 
@@ -171,8 +176,12 @@ def result_plc(history, result_dir, timestamp, config):
     plt.savefig(chart_path, dpi=300, bbox_inches='tight')
     logger.info(f"Chart saved to: {chart_path}")
 
-    # Show final performance and communication summary
-    if 'total_communication' in history:
-        logger.info(f"\nTraining completed - Total communication: {np.sum(history['total_communication']):.2f} MB")
+    # Show final performance and transmission time summary
+    if 'transmission_time' in history:
+        total_transmission_time = np.sum(history['transmission_time'])
+        avg_transmission_time = np.mean(history['transmission_time'])
+        logger.info(f"\nTraining completed - Total transmission time: {total_transmission_time:.4f}s")
+        logger.info(f"Average transmission time per round: {avg_transmission_time:.4f}s")
+
 
     plt.show()

@@ -141,6 +141,13 @@ def result_plc(history, result_dir, timestamp, config):
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.7)
 
+        # 添加总通信量标注
+        total_comm = np.sum(history['up_communication'])
+        plt.text(0.05, 0.95, f'Total: {total_comm:.2f} MB',
+                 transform=plt.gca().transAxes,
+                 bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
+                 fontsize=12, verticalalignment='top')
+
     # Cumulative communication plot
     if 'up_communication' in history:  # 使用上行通信量
         plt.subplot(2, 2, 4)
@@ -151,14 +158,7 @@ def result_plc(history, result_dir, timestamp, config):
         plt.ylabel('Cumulative Communication (MB)', fontsize=12)
         plt.grid(True, linestyle='--', alpha=0.7)
 
-        # Annotate final communication
-        final_comm = cumulative_comm[-1]
-        plt.annotate(f'Total: {final_comm:.2f} MB',
-                     xy=(history['round'][-1], final_comm),
-                     xytext=(-80, 30),
-                     textcoords='offset points',
-                     arrowprops=dict(arrowstyle='->'),
-                     fontsize=12)
+
 
     # Add timestamp watermark
     fig.text(0.95, 0.01, f'Generated: {timestamp}', fontsize=8,

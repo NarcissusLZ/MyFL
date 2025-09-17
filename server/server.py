@@ -347,8 +347,10 @@ class Server:
             max_client = max(self.round_transmission_times, key=self.round_transmission_times.get)
             self.max_transmission_times.append(max_time)
 
+            # 格式化每个客户端的传输时间为两位小数
+            formatted_times = {k: f"{v:.2f}" for k, v in self.round_transmission_times.items()}
             print(f"本轮传输完成，最慢客户端: {max_client}，传输时间: {max_time:.2f}s")
-            print(f"所有客户端传输时间: {self.round_transmission_times:.2f}")
+            print(f"所有客户端传输时间: {formatted_times}")
         else:
             self.max_transmission_times.append(0.0)
 

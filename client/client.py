@@ -85,8 +85,6 @@ class Client:
         """计算单次传输时间（不考虑重传，由服务器端控制重传逻辑）"""
         data_rate = self._calculate_data_rate()  # bps
         transmission_time = (data_size_bytes * 8) / data_rate  # 转换为比特再除以速率
-
-        print(f"客户端 {self.id} 传输 {data_size_bytes / 1024 / 1024:.2f} MB，传输时间: {transmission_time:.4f}s")
         return transmission_time, 1  # 返回传输时间和传输次数(1)
 
     def _select_device(self, device_config):

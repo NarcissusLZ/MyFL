@@ -226,14 +226,14 @@ class Server:
                     retrans_time, _ = client.calculate_transmission_time(drop_list_size)
                     total_transmission_time += retrans_time
                     actual_received_size += drop_list_size
-                    print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.4f}s")
+                    print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
                     is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
 
                 if not is_drop_list_lost:
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(
-                        f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}，总传输时间：{total_transmission_time:.4f}s")
+                        f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}，总传输时间：{total_transmission_time:.2f}s")
 
             # 处理关键层
             if normal_layers:
@@ -251,13 +251,13 @@ class Server:
                     retrans_time, _ = client.calculate_transmission_time(normal_size)
                     total_transmission_time += retrans_time
                     actual_received_size += normal_size
-                    print(f"TCP模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.4f}s")
+                    print(f"TCP模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
                     is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
 
                 if not is_normal_lost:
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.4f}s")
+                    print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
 
 
 
@@ -270,7 +270,7 @@ class Server:
                     actual_received_size += drop_list_size
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"UDP模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.4f}s")
+                    print(f"UDP模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
                     print(f"UDP模式：客户端{client_id}的鲁棒层丢包，不重传")
 
@@ -281,7 +281,7 @@ class Server:
                     actual_received_size += normal_size
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"UDP模式：客户端{client_id}的关键层成功接收，传输时间: {transmission_time:.4f}s")
+                    print(f"UDP模式：客户端{client_id}的关键层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
                     print(f"UDP模式：客户端{client_id}的关键层丢包，不重传")
 
@@ -295,7 +295,7 @@ class Server:
                 if not is_drop_list_lost:
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"LTQ模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.4f}s")
+                    print(f"LTQ模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
                     print(f"LTQ模式：客户端{client_id}的鲁棒层丢包，不重传")
 
@@ -313,13 +313,13 @@ class Server:
                     retrans_time, _ = client.calculate_transmission_time(normal_size)
                     total_transmission_time += retrans_time
                     actual_received_size += normal_size
-                    print(f"LTQ模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.4f}s")
+                    print(f"LTQ模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
                     is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
 
                 if not is_normal_lost:
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.4f}s")
+                    print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
 
         # 记录该客户端的传输时间
         self.round_transmission_times[client_id] = total_transmission_time
@@ -337,7 +337,7 @@ class Server:
 
         print(f"服务器已接收客户端 {client_id} 的更新:")
         print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
-        print(f"  总传输时间: {total_transmission_time:.4f}s")
+        print(f"  总传输时间: {total_transmission_time:.2f}s")
         return True
 
     def finalize_round_transmission_time(self):
@@ -347,8 +347,8 @@ class Server:
             max_client = max(self.round_transmission_times, key=self.round_transmission_times.get)
             self.max_transmission_times.append(max_time)
 
-            print(f"本轮传输完成，最慢客户端: {max_client}，传输时间: {max_time:.4f}s")
-            print(f"所有客户端传输时间: {self.round_transmission_times}")
+            print(f"本轮传输完成，最慢客户端: {max_client}，传输时间: {max_time:.2f}s")
+            print(f"所有客户端传输时间: {self.round_transmission_times:.2f}")
         else:
             self.max_transmission_times.append(0.0)
 

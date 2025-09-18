@@ -54,25 +54,6 @@ def main():
         alpha=config['non_iid_alpha']
     )
 
-    # 打印每个客户端的数据量和类别分布
-    logger.info("\n客户端数据分布:")
-    for client_id, data_subset in client_data.items():
-        # 获取该客户端的所有标签
-        labels = [data_subset[i][1] for i in range(len(data_subset))]
-
-        # 统计类别分布
-        unique_labels, counts = np.unique(labels, return_counts=True)
-        label_distribution = dict(zip(unique_labels, counts))
-
-        # 计算类别比例
-        total_samples = len(data_subset)
-        label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
-
-        logger.info(f"客户端 {client_id}: {total_samples} 个样本")
-        logger.info(f"  类别分布: {label_distribution}")
-        logger.info(f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}")
-        logger.info("-" * 30)
-
     # 4. 初始化服务器
     logger.info("\n初始化服务器...")
     server = Server(config, test_dataset)
@@ -96,6 +77,29 @@ def main():
         if gpu_id is not None:
             logger.info(f"客户端 {client_id} 分配到GPU {gpu_id}")
 
+    # 打印每个客户端的数据量和类别分布
+    logger.info("\n客户端数据分布:")
+    for client_id, data_subset in client_data.items():
+        # 获取该客户端的所有标签
+        labels = [data_subset[i][1] for i in range(len(data_subset))]
+
+        # 统计类别分布
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        label_distribution = dict(zip(unique_labels, counts))
+
+        # 计算类别比例
+        total_samples = len(data_subset)
+        label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
+
+        # 获取对应客户端对象以访问距离和丢包率
+        client = clients[client_id]
+
+        logger.info(f"客户端 {client_id}: {total_samples} 个样本")
+        logger.info(f"  距离: {client.distance}m, 丢包率: {client.packet_loss:.3f}")
+        logger.info(f"  类别分布: {label_distribution}")
+        logger.info(f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}")
+
+    logger.info("-" * 30)
 
     logger.info("服务器向所有客户端下发初始模型...")
     server.broadcast_model(list(clients.values()))

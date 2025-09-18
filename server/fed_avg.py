@@ -20,35 +20,33 @@ def fed_avg(global_model, client_weights):
     # 获取全局模型参数的副本
     global_state = copy.deepcopy(global_model.state_dict())
 
-    # 计算所有客户端的样本总数
-    total_weight = sum(weights['num_samples'] for client_id, weights in client_weights.items())
-
-    print(f"参与聚合的客户端数量：{len(client_weights)}")
-    print(f"样本总数：{total_weight}")
-
-    # 对每个参数，累加所有客户端的加权贡献
+    # 对每个参数层单独处理
     for key in global_state.keys():
-        # 检查参数类型
         param_type = global_state[key].dtype
 
-        # 针对不同数据类型的处理
-        if param_type == torch.long or param_type == torch.int64 or param_type == torch.int32:
-            # 对于整数类型的参数，直接使用原始值，跳过聚合
+        if param_type in [torch.long, torch.int64, torch.int32]:
             continue
-        else:
-            # 对于浮点类型的参数，重置并累加
-            # 创建与原始张量形状相同但类型为 float32 的零张量
-            global_state[key] = torch.zeros_like(global_state[key], dtype=torch.float32, device=server_device)
 
-            # 累加每个客户端的加权贡献
-            for client_id, weights in client_weights.items():
+        # 计算该层的有效客户端权重总和
+        layer_total_weight = 0
+        for client_id, weights in client_weights.items():
+            if key in weights['state_dict']:
+                layer_total_weight += weights['num_samples']
+
+        if layer_total_weight == 0:
+            # 该层完全丢失，保持全局模型原值
+            continue
+
+        # 重置该层为零，然后累加有效客户端的贡献
+        global_state[key] = torch.zeros_like(global_state[key], dtype=torch.float32, device=server_device)
+
+        for client_id, weights in client_weights.items():
+            if key in weights['state_dict']:
                 client_state = weights['state_dict']
                 weight = weights['num_samples']
-
-                if key in client_state:
-                    # 确保张量在服务器设备上，并转换为浮点类型
-                    update = client_state[key].to(device=server_device, dtype=torch.float32)
-                    global_state[key] += (weight / total_weight) * update
+                update = client_state[key].to(device=server_device, dtype=torch.float32)
+                # 关键：用该层的实际权重总和作分母
+                global_state[key] += (weight / layer_total_weight) * update
 
     print("模型聚合完成")
     return global_state

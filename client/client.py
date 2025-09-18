@@ -14,7 +14,7 @@ class Client:
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
         self.distance = random.randint(1,50)
-        self.packet_loss = self.distance * 0.005+0.05
+        self.packet_loss = self.distance * 0.01
 
         # 通信参数
         self.tx_power = 0.1  # 发射功率 100mW = 0.1W

@@ -31,9 +31,12 @@ class CIFAR10_VGG16(nn.Module):
             nn.Linear(4096, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(0.4),
+            nn.Linear(4096, 1000),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3)
         )
         # 使用传入的num_classes参数
-        self.classifier = nn.Linear(4096, num_classes)
+        self.classifier = nn.Linear(1000, num_classes)
 
     def forward(self, x):
         out = self.features(x)

@@ -13,7 +13,7 @@ class Client:
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
-        self.distance = random.randint(1,50)
+        self.distance = id
         self.packet_loss = self.distance * 0.01
 
         # 通信参数

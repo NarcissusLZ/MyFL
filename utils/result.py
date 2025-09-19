@@ -95,7 +95,6 @@ def result_plc(history, result_dir, timestamp, config):
 
     plt.subplots_adjust(top=0.85, hspace=0.3)
 
-
     # Accuracy plot
     plt.subplot(2, 2, 1)
     plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
@@ -105,15 +104,6 @@ def result_plc(history, result_dir, timestamp, config):
     plt.ylim(0, 100)
     plt.grid(True, linestyle='--', alpha=0.7)
 
-    # Show final accuracy
-    final_accuracy = history['accuracy'][-1]
-    plt.annotate(f'Final: {final_accuracy:.2f}%',
-                 xy=(history['round'][-1], final_accuracy),
-                 xytext=(-100, -30),
-                 textcoords='offset points',
-                 arrowprops=dict(arrowstyle='->'),
-                 fontsize=12)
-
     # Loss plot
     plt.subplot(2, 2, 2)
     plt.plot(history['round'], history['loss'], 'r-', marker='s', linewidth=2, markersize=4)
@@ -122,14 +112,6 @@ def result_plc(history, result_dir, timestamp, config):
     plt.ylabel('Loss', fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.7)
 
-    # Show final loss
-    final_loss = history['loss'][-1]
-    plt.annotate(f'Final: {final_loss:.4f}',
-                 xy=(history['round'][-1], final_loss),
-                 xytext=(-80, 30),
-                 textcoords='offset points',
-                 arrowprops=dict(arrowstyle='->'),
-                 fontsize=12)
 
     # Communication per round plot
     if 'up_communication' in history:
@@ -149,7 +131,7 @@ def result_plc(history, result_dir, timestamp, config):
                  bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
                  fontsize=12, verticalalignment='top')
 
-        # 传输时间图 (替换累积通信量图)
+        # 传输时间图
         if 'transmission_time' in history and history['transmission_time']:
             plt.subplot(2, 2, 4)
             plt.plot(history['round'], history['transmission_time'], 'orange', marker='D', linewidth=2, markersize=4)
@@ -165,10 +147,10 @@ def result_plc(history, result_dir, timestamp, config):
                      bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
                      fontsize=12, verticalalignment='top')
 
-            # 显示平均传输时间
-            avg_time = np.mean(history['transmission_time'])
-            plt.axhline(y=avg_time, color='red', linestyle='--', alpha=0.7, label=f'Average: {avg_time:.4f}s')
-            plt.legend()
+            # # 显示平均传输时间
+            # avg_time = np.mean(history['transmission_time'])
+            # plt.axhline(y=avg_time, color='red', linestyle='--', alpha=0.7, label=f'Average: {avg_time:.4f}s')
+            # plt.legend()
 
 
 

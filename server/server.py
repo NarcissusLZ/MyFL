@@ -260,14 +260,12 @@ class Server:
                     print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
 
 
-
         elif transport_type == 'UDP':
-            # UDP模式：只传输一次
             if drop_list_layers:
                 transmission_time, _ = client.calculate_transmission_time(drop_list_size)
                 total_transmission_time += transmission_time
+                actual_received_size += drop_list_size
                 if not is_drop_list_lost:
-                    actual_received_size += drop_list_size
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"UDP模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
@@ -277,14 +275,13 @@ class Server:
             if normal_layers:
                 transmission_time, _ = client.calculate_transmission_time(normal_size)
                 total_transmission_time += transmission_time
+                actual_received_size += normal_size
                 if not is_normal_lost:
-                    actual_received_size += normal_size
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"UDP模式：客户端{client_id}的关键层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
                     print(f"UDP模式：客户端{client_id}的关键层丢包，不重传")
-
 
         elif transport_type == 'LTQ':
             # LTQ模式：鲁棒层不重传，关键层重传

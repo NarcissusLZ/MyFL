@@ -4,17 +4,47 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time,math
 from tqdm import tqdm
-import random
+import numpy as np
 
 class Client:
+    # 类变量，用于控制距离分配
+    _distance_seed = None
+    _distance_generator = None
+
+    @classmethod
+    def set_distance_seed(cls, seed):
+        """设置距离分配的随机种子"""
+        cls._distance_seed = seed
+        cls._distance_generator = np.random.RandomState(seed)
+        print(f"客户端距离分配种子设置为: {seed}")
+
+    @classmethod
+    def generate_distance(cls, mean=25, std=8.33):
+        """
+        生成符合正态分布的距离值
+        mean: 均值，默认25米
+        std: 标准差，默认8.33（使得99.7%的值在1-50范围内）
+        """
+        if cls._distance_generator is None:
+            # 如果没有设置种子，使用默认种子
+            cls._distance_generator = np.random.RandomState(42)
+
+        # 生成正态分布的距离值
+        distance = cls._distance_generator.normal(mean, std)
+
+        # 限制在合理范围内（1-50米）
+        distance = max(1, min(50, distance))
+
+        return round(distance, 2)
+
     def __init__(self, id, config, local_dataset, gpu_id=None):
         self.id = id
         self.config = config
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
-        self.distance = random.randint(1, 50)
-        self.packet_loss = self.distance * 0.005
+        self.distance = self.generate_distance()
+        self.packet_loss = self.distance * 0.01
 
         # 通信参数
         self.tx_power = 0.1  # 发射功率 100mW = 0.1W

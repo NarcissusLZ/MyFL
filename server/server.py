@@ -10,6 +10,10 @@ class Server:
         self.config = config
         self.device = torch.device('cuda:0') if torch.cuda.is_available() else self._select_device(config['device'])
 
+        # 设置随机种子以确保实验可重复
+        self.random_seed = config.get('random_seed', 42)
+        self._set_random_seeds()
+
         # 初始化全局模型
         self.global_model = self.init_model()
         self.global_model.to(self.device)
@@ -37,15 +41,35 @@ class Server:
         
         # Gilbert-Elliott模型参数初始化
         self.gilbert_elliott_states = {}  # 每个客户端的网络状态
+        self.client_random_generators = {}  # 每个客户端的独立随机数生成器 - 在这里初始化
         self._init_gilbert_elliott_params()
         
         print(f"服务器初始化完成, 设备: {self.device}")
+
+    def _set_random_seeds(self):
+        """设置随机种子以确保实验可重复性"""
+        random.seed(self.random_seed)
+        np.random.seed(self.random_seed)
+        torch.manual_seed(self.random_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.random_seed)
+        print(f"已设置随机种子: {self.random_seed}")
 
     def _init_gilbert_elliott_params(self):
         """初始化Gilbert-Elliott模型状态字典"""
         # 只初始化状态字典，不再设置全局丢包率参数
         self.gilbert_elliott_states = {}  # 每个客户端的网络状态
+        self.client_random_generators = {}  # 每个客户端的独立随机数生成器
         print("已初始化Gilbert-Elliott模型状态字典，将使用客户端各自的丢包率")
+
+    def _get_client_random_generator(self, client_id):
+        """为每个客户端获取或创建独立的随机数生成器"""
+        if client_id not in self.client_random_generators:
+            # 基于随机种子和客户端ID创建确定性的种子
+            client_seed = self.random_seed + hash(str(client_id)) % 10000
+            self.client_random_generators[client_id] = random.Random(client_seed)
+            print(f"为客户端 {client_id} 创建随机数生成器，种子: {client_seed}")
+        return self.client_random_generators[client_id]
 
     def get_model_size(self):
         """计算模型参数大小（字节）"""
@@ -126,10 +150,13 @@ class Server:
         if client_loss_rate == 0:
             return False  # 没有丢包率，不丢包
 
+        # 获取客户端专用的随机数生成器
+        client_rng = self._get_client_random_generator(client_id)
+
         # 初始化客户端状态（如果是第一次）
         if client_id not in self.gilbert_elliott_states:
-            # 随机初始化为好状态(0)或坏状态(1)
-            self.gilbert_elliott_states[client_id] = 0 if random.random() > client_loss_rate else 1
+            # 使用客户端专用的随机数生成器进行初始化
+            self.gilbert_elliott_states[client_id] = 0 if client_rng.random() > client_loss_rate else 1
         
         current_state = self.gilbert_elliott_states[client_id]
 
@@ -137,8 +164,8 @@ class Server:
         good_to_bad = 0.5 * client_loss_rate
         bad_to_good = 0.5 - good_to_bad
 
-        # 生成随机数用于状态转移判断
-        rand = random.random()
+        # 使用客户端专用的随机数生成器
+        rand = client_rng.random()
 
         # 根据当前状态和转移概率决定是否丢包
         if current_state == 0:  # 当前是好状态

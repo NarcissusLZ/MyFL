@@ -162,9 +162,9 @@ class Server:
 
     def receive_local_model(self, client, model_state_dict, num_samples):
         """接收客户端上传的模型更新，将模型分为两部分整体处理丢包"""
-        # if model_state_dict is None:
-        #     print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
-        #     return False
+        if model_state_dict is None:
+            print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
+            return False
 
         client_id = client.id
         # 获取传输协议类型
@@ -325,16 +325,17 @@ class Server:
         self.total_up_communication += actual_received_size
         self.round_up_communication += actual_received_size
 
+        print(f"服务器已接收客户端 {client_id} 的更新:")
+        print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
+        print(f"  总传输时间: {total_transmission_time:.2f}s")
+
         if not self.client_weights[client_id]['state_dict']:
             print(f"客户端 {client_id} 的所有层传输失败，无法使用该客户端的更新")
             del self.client_weights[client_id]
             if client_id in self.round_transmission_times:
                 del self.round_transmission_times[client_id]
             return False
-
-        print(f"服务器已接收客户端 {client_id} 的更新:")
-        print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
-        print(f"  总传输时间: {total_transmission_time:.2f}s")
+        
         return True
 
     def finalize_round_transmission_time(self):

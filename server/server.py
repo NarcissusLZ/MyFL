@@ -162,9 +162,9 @@ class Server:
 
     def receive_local_model(self, client, model_state_dict, num_samples):
         """接收客户端上传的模型更新，将模型分为两部分整体处理丢包"""
-        if model_state_dict is None:
-            print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
-            return False
+        # if model_state_dict is None:
+        #     print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
+        #     return False
 
         client_id = client.id
         # 获取传输协议类型

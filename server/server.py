@@ -199,12 +199,15 @@ class Server:
         # 获取需要丢弃的层名称列表
         layers_to_drop = self.config.get('layers_to_drop', [])
 
-        # 初始化客户端的权重记录
+         # 初始化客户端的权重记录，先用全局模型的完整状态字典作为基础
         if client_id not in self.client_weights:
             self.client_weights[client_id] = {
-                'state_dict': {},
+                'state_dict': copy.deepcopy(self.global_model.state_dict()),  # 用全局模型作为基础
                 'num_samples': num_samples
             }
+        else:
+            # 更新样本数（重要！）
+            self.client_weights[client_id]['num_samples'] = num_samples
         
         # 将模型层分类
         drop_list_layers = {}
@@ -257,14 +260,17 @@ class Server:
                     is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
 
                 if not is_drop_list_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(
-                        f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}，总传输时间：{total_transmission_time:.2f}s")
+                    print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}，总传输时间：{total_transmission_time:.2f}s")
+                else:
+                    # 重传失败，保持使用全局模型的对应层
+                    print(f"TCP模式：客户端{client_id}的鲁棒层重传失败，使用全局模型对应层替代")
 
             # 处理关键层
             if normal_layers:
-            # 计算初次传输时间
+                # 计算初次传输时间
                 transmission_time, _ = client.calculate_transmission_time(normal_size)
                 total_transmission_time += transmission_time
                 actual_received_size += normal_size
@@ -282,10 +288,13 @@ class Server:
                     is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
 
                 if not is_normal_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
-
+                else:
+                    # 重传失败，保持使用全局模型的对应层
+                    print(f"TCP模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
 
         elif transport_type == 'UDP':
             if drop_list_layers:
@@ -293,22 +302,26 @@ class Server:
                 total_transmission_time += transmission_time
                 actual_received_size += drop_list_size
                 if not is_drop_list_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"UDP模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
-                    print(f"UDP模式：客户端{client_id}的鲁棒层丢包，不重传")
+                    # 丢包，保持使用全局模型的对应层
+                    print(f"UDP模式：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
 
             if normal_layers:
                 transmission_time, _ = client.calculate_transmission_time(normal_size)
                 total_transmission_time += transmission_time
                 actual_received_size += normal_size
                 if not is_normal_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"UDP模式：客户端{client_id}的关键层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
-                    print(f"UDP模式：客户端{client_id}的关键层丢包，不重传")
+                    # 丢包，保持使用全局模型的对应层
+                    print(f"UDP模式：客户端{client_id}的关键层丢包，使用全局模型对应层替代")
 
         elif transport_type == 'LTQ':
             # LTQ模式：鲁棒层不重传，关键层重传
@@ -317,11 +330,13 @@ class Server:
                 total_transmission_time += transmission_time
                 actual_received_size += drop_list_size
                 if not is_drop_list_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in drop_list_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"LTQ模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
                 else:
-                    print(f"LTQ模式：客户端{client_id}的鲁棒层丢包，不重传")
+                    # 丢包，保持使用全局模型的对应层
+                    print(f"LTQ模式：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
 
             if normal_layers:
                 # 计算初次传输时间
@@ -341,9 +356,13 @@ class Server:
                     is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
 
                 if not is_normal_lost:
+                    # 成功接收，用客户端的参数替换
                     for key, param in normal_layers.items():
                         self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
                     print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
+                else:
+                    # 重传失败，保持使用全局模型的对应层
+                    print(f"LTQ模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
 
         # 记录该客户端的传输时间
         self.round_transmission_times[client_id] = total_transmission_time
@@ -356,13 +375,7 @@ class Server:
         print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
         print(f"  总传输时间: {total_transmission_time:.2f}s")
 
-        if not self.client_weights[client_id]['state_dict']:
-            print(f"客户端 {client_id} 的所有层传输失败，无法使用该客户端的更新")
-            del self.client_weights[client_id]
-            if client_id in self.round_transmission_times:
-                del self.round_transmission_times[client_id]
-            return False
-        
+        # 现在每个客户端都应该有完整的模型参数（要么是自己的，要么是全局模型的）
         return True
 
     def finalize_round_transmission_time(self):

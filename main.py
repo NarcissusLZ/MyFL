@@ -143,12 +143,21 @@ def main():
             }
 
         # d. 客户端上传模型更新给服务器
+        current_accuracy = None
+        if round > 0:  # 第一轮没有历史精度
+            current_accuracy = history['accuracy'][-1]  # 使用上一轮的精度
+        
         for client_id, update in client_updates.items():
-            server.receive_local_model(
+            success = server.receive_local_model(
                 update['client'],  # 传递客户端对象而非ID
                 update['model_state'],
-                update['num_samples']
+                update['num_samples'],
+                current_round=round + 1,  # ✅ 添加当前轮次
+                current_accuracy=current_accuracy  # ✅ 添加当前精度
             )
+            
+            if not success:
+                logger.warning(f"客户端 {client_id} 的模型更新接收失败")
 
         # 记录本轮最大传输时间（在聚合前）
         server.finalize_round_transmission_time()

@@ -5,6 +5,7 @@ import copy
 import torch.nn as nn
 import random
 
+
 class Server:
     def __init__(self, config, test_dataset):
         self.config = config
@@ -186,8 +187,58 @@ class Server:
                 should_drop = False
 
         return should_drop
+    
+    def get_ltq_strategy_phase(self, current_round, current_accuracy=None):
+        """
+        确定LTQ当前应该采用的策略阶段
+        返回: 'early', 'middle', 'late'
+        """
+        total_rounds = self.config['rounds']
+        
+        # 方案1: 纯轮次划分
+        if self.config.get('ltq_phase_method', 'rounds') == 'rounds':
+            early_ratio = self.config.get('ltq_early_ratio', 0.3)  # 前30%
+            middle_ratio = self.config.get('ltq_middle_ratio', 0.5)  # 中50%
+            
+            if current_round <= total_rounds * early_ratio:
+                return 'early'
+            elif current_round <= total_rounds * (early_ratio + middle_ratio):
+                return 'middle'
+            else:
+                return 'late'
+        
+        # 方案2: 基于精度的自适应划分
+        elif self.config.get('ltq_phase_method', 'rounds') == 'accuracy':
+            if current_accuracy is None:
+                return 'early'  # 如果没有精度信息，默认早期
+            
+            early_threshold = self.config.get('ltq_early_acc_threshold', 30.0)  # 30%精度以下为早期
+            middle_threshold = self.config.get('ltq_middle_acc_threshold', 60.0)  # 60%精度以下为中期
+            
+            if current_accuracy < early_threshold:
+                return 'early'
+            elif current_accuracy < middle_threshold:
+                return 'middle'
+            else:
+                return 'late'
+        
+        # 方案3: 混合策略（轮次 + 精度）
+        else:  # 'hybrid'
+            # 最少要训练多少轮才能进入中期/后期
+            min_middle_round = int(total_rounds * 0.2)
+            min_late_round = int(total_rounds * 0.6)
+            
+            early_acc_threshold = self.config.get('ltq_early_acc_threshold', 25.0)
+            middle_acc_threshold = self.config.get('ltq_middle_acc_threshold', 55.0)
+            
+            if current_round < min_middle_round or (current_accuracy and current_accuracy < early_acc_threshold):
+                return 'early'
+            elif current_round < min_late_round or (current_accuracy and current_accuracy < middle_acc_threshold):
+                return 'middle'
+            else:
+                return 'late'
 
-    def receive_local_model(self, client, model_state_dict, num_samples):
+    def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
         """接收客户端上传的模型更新，将模型分为两部分整体处理丢包"""
         if model_state_dict is None:
             print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
@@ -240,129 +291,30 @@ class Server:
         
         # 根据传输协议处理丢包和重传
         if transport_type == 'TCP':
-            # 处理drop_list中的层
-            if drop_list_layers:
-                # 计算初次传输时间
-                transmission_time, _ = client.calculate_transmission_time(drop_list_size)
-                total_transmission_time += transmission_time
-                actual_received_size += drop_list_size
-
-                retries_drop = 0
-                max_retries = 16
-
-                while is_drop_list_lost and retries_drop < max_retries:
-                    retries_drop += 1
-                    # 每次重传都要重新计算传输时间
-                    retrans_time, _ = client.calculate_transmission_time(drop_list_size)
-                    total_transmission_time += retrans_time
-                    actual_received_size += drop_list_size
-                    print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
-                    is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
-
-                if not is_drop_list_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in drop_list_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}，总传输时间：{total_transmission_time:.2f}s")
-                else:
-                    # 重传失败，保持使用全局模型的对应层
-                    print(f"TCP模式：客户端{client_id}的鲁棒层重传失败，使用全局模型对应层替代")
-
-            # 处理关键层
-            if normal_layers:
-                # 计算初次传输时间
-                transmission_time, _ = client.calculate_transmission_time(normal_size)
-                total_transmission_time += transmission_time
-                actual_received_size += normal_size
-
-                retries_normal = 0
-                max_retries = 16
-
-                while is_normal_lost and retries_normal < max_retries:
-                    retries_normal += 1
-                    # 每次重传都要重新计算传输时间
-                    retrans_time, _ = client.calculate_transmission_time(normal_size)
-                    total_transmission_time += retrans_time
-                    actual_received_size += normal_size
-                    print(f"TCP模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
-                    is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
-
-                if not is_normal_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in normal_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
-                else:
-                    # 重传失败，保持使用全局模型的对应层
-                    print(f"TCP模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
+            total_transmission_time, actual_received_size = self._handle_tcp_transmission(
+                client, client_id, drop_list_layers, normal_layers, 
+                drop_list_size, normal_size, is_drop_list_lost, is_normal_lost
+            )
 
         elif transport_type == 'UDP':
-            if drop_list_layers:
-                transmission_time, _ = client.calculate_transmission_time(drop_list_size)
-                total_transmission_time += transmission_time
-                actual_received_size += drop_list_size
-                if not is_drop_list_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in drop_list_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"UDP模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
-                else:
-                    # 丢包，保持使用全局模型的对应层
-                    print(f"UDP模式：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
-
-            if normal_layers:
-                transmission_time, _ = client.calculate_transmission_time(normal_size)
-                total_transmission_time += transmission_time
-                actual_received_size += normal_size
-                if not is_normal_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in normal_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"UDP模式：客户端{client_id}的关键层成功接收，传输时间: {transmission_time:.2f}s")
-                else:
-                    # 丢包，保持使用全局模型的对应层
-                    print(f"UDP模式：客户端{client_id}的关键层丢包，使用全局模型对应层替代")
+            total_transmission_time, actual_received_size = self._handle_udp_transmission(
+                client, client_id, drop_list_layers, normal_layers,
+                drop_list_size, normal_size, is_drop_list_lost, is_normal_lost
+            )
 
         elif transport_type == 'LTQ':
-            # LTQ模式：鲁棒层不重传，关键层重传
-            if drop_list_layers:
-                transmission_time, _ = client.calculate_transmission_time(drop_list_size)
-                total_transmission_time += transmission_time
-                actual_received_size += drop_list_size
-                if not is_drop_list_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in drop_list_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"LTQ模式：客户端{client_id}的鲁棒层成功接收，传输时间: {transmission_time:.2f}s")
-                else:
-                    # 丢包，保持使用全局模型的对应层
-                    print(f"LTQ模式：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
-
-            if normal_layers:
-                # 计算初次传输时间
-                transmission_time, _ = client.calculate_transmission_time(normal_size)
-                total_transmission_time += transmission_time
-                actual_received_size += normal_size
-                retries_normal = 0
-                max_retries = 16
-
-                while is_normal_lost and retries_normal < max_retries:
-                    retries_normal += 1
-                    # 每次重传都要重新计算传输时间
-                    retrans_time, _ = client.calculate_transmission_time(normal_size)
-                    total_transmission_time += retrans_time
-                    actual_received_size += normal_size
-                    print(f"LTQ模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
-                    is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
-
-                if not is_normal_lost:
-                    # 成功接收，用客户端的参数替换
-                    for key, param in normal_layers.items():
-                        self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                    print(f"LTQ模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}，总传输时间：{total_transmission_time:.2f}s")
-                else:
-                    # 重传失败，保持使用全局模型的对应层
-                    print(f"LTQ模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
+            # 确定当前处于哪个阶段
+            ltq_phase = self.get_ltq_strategy_phase(current_round, current_accuracy)
+            
+            if current_accuracy is not None:
+                print(f"LTQ模式：当前处于 {ltq_phase} 阶段（轮次: {current_round}, 精度: {current_accuracy:.2f}%）")
+            else:
+                print(f"LTQ模式：当前处于 {ltq_phase} 阶段（轮次: {current_round}, 精度: 未知）")
+            
+            total_transmission_time, actual_received_size = self._handle_ltq_transmission(
+                client, client_id, drop_list_layers, normal_layers,
+                drop_list_size, normal_size, is_drop_list_lost, is_normal_lost, ltq_phase
+            )
 
         # 记录该客户端的传输时间
         self.round_transmission_times[client_id] = total_transmission_time
@@ -375,8 +327,166 @@ class Server:
         print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
         print(f"  总传输时间: {total_transmission_time:.2f}s")
 
-        # 现在每个客户端都应该有完整的模型参数（要么是自己的，要么是全局模型的）
         return True
+    
+    def _handle_tcp_transmission(self, client, client_id, drop_list_layers, normal_layers, 
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
+        """处理TCP传输：所有层都重传"""
+        total_transmission_time = 0.0
+        actual_received_size = 0
+        max_retries = 16
+
+        # 处理鲁棒层
+        if drop_list_layers:
+            transmission_time, _ = client.calculate_transmission_time(drop_list_size)
+            total_transmission_time += transmission_time
+            actual_received_size += drop_list_size
+
+            retries_drop = 0
+            while is_drop_list_lost and retries_drop < max_retries:
+                retries_drop += 1
+                retrans_time, _ = client.calculate_transmission_time(drop_list_size)
+                total_transmission_time += retrans_time
+                actual_received_size += drop_list_size
+                print(f"TCP模式：客户端{client_id}的鲁棒层丢包，尝试重传 ({retries_drop}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
+                is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
+
+            if not is_drop_list_lost:
+                for key, param in drop_list_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}")
+            else:
+                print(f"TCP模式：客户端{client_id}的鲁棒层重传失败，使用全局模型对应层替代")
+
+        # 处理关键层
+        if normal_layers:
+            transmission_time, _ = client.calculate_transmission_time(normal_size)
+            total_transmission_time += transmission_time
+            actual_received_size += normal_size
+
+            retries_normal = 0
+            while is_normal_lost and retries_normal < max_retries:
+                retries_normal += 1
+                retrans_time, _ = client.calculate_transmission_time(normal_size)
+                total_transmission_time += retrans_time
+                actual_received_size += normal_size
+                print(f"TCP模式：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})，累计传输时间: {total_transmission_time:.2f}s")
+                is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
+
+            if not is_normal_lost:
+                for key, param in normal_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
+            else:
+                print(f"TCP模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
+
+        return total_transmission_time, actual_received_size
+
+    def _handle_udp_transmission(self, client, client_id, drop_list_layers, normal_layers,
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
+        """处理UDP传输：不重传"""
+        total_transmission_time = 0.0
+        actual_received_size = 0
+
+        # 处理鲁棒层
+        if drop_list_layers:
+            transmission_time, _ = client.calculate_transmission_time(drop_list_size)
+            total_transmission_time += transmission_time
+            actual_received_size += drop_list_size
+            
+            if not is_drop_list_lost:
+                for key, param in drop_list_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"UDP模式：客户端{client_id}的鲁棒层成功接收")
+            else:
+                print(f"UDP模式：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
+
+        # 处理关键层
+        if normal_layers:
+            transmission_time, _ = client.calculate_transmission_time(normal_size)
+            total_transmission_time += transmission_time
+            actual_received_size += normal_size
+            
+            if not is_normal_lost:
+                for key, param in normal_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"UDP模式：客户端{client_id}的关键层成功接收")
+            else:
+                print(f"UDP模式：客户端{client_id}的关键层丢包，使用全局模型对应层替代")
+
+        return total_transmission_time, actual_received_size
+
+    def _handle_ltq_transmission(self, client, client_id, drop_list_layers, normal_layers,
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost, ltq_phase):
+        """处理LTQ传输：根据阶段采用不同策略"""
+        if ltq_phase == 'early':
+            return self._handle_ltq_early_phase(client, client_id, drop_list_layers, normal_layers,
+                                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost)
+        elif ltq_phase == 'middle':
+            return self._handle_ltq_middle_phase(client, client_id, drop_list_layers, normal_layers,
+                                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost)
+        else:  # late phase
+            return self._handle_ltq_late_phase(client, client_id, drop_list_layers, normal_layers,
+                                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost)
+
+    def _handle_ltq_early_phase(self, client, client_id, drop_list_layers, normal_layers,
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
+        """LTQ早期阶段：所有层都重传（类似TCP）"""
+        print("LTQ早期策略：所有层都进行重传")
+        return self._handle_tcp_transmission(client, client_id, drop_list_layers, normal_layers,
+                                        drop_list_size, normal_size, is_drop_list_lost, is_normal_lost)
+
+    def _handle_ltq_middle_phase(self, client, client_id, drop_list_layers, normal_layers,
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
+        """LTQ中期阶段：只有关键层重传（原LTQ策略）"""
+        print("LTQ中期策略：只有关键层进行重传")
+        total_transmission_time = 0.0
+        actual_received_size = 0
+        max_retries = 16
+
+        # 处理鲁棒层（不重传）
+        if drop_list_layers:
+            transmission_time, _ = client.calculate_transmission_time(drop_list_size)
+            total_transmission_time += transmission_time
+            actual_received_size += drop_list_size
+            
+            if not is_drop_list_lost:
+                for key, param in drop_list_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"LTQ中期：客户端{client_id}的鲁棒层成功接收")
+            else:
+                print(f"LTQ中期：客户端{client_id}的鲁棒层丢包，使用全局模型对应层替代")
+
+        # 处理关键层（重传）
+        if normal_layers:
+            transmission_time, _ = client.calculate_transmission_time(normal_size)
+            total_transmission_time += transmission_time
+            actual_received_size += normal_size
+            
+            retries_normal = 0
+            while is_normal_lost and retries_normal < max_retries:
+                retries_normal += 1
+                retrans_time, _ = client.calculate_transmission_time(normal_size)
+                total_transmission_time += retrans_time
+                actual_received_size += normal_size
+                print(f"LTQ中期：客户端{client_id}的关键层丢包，尝试重传 ({retries_normal}/{max_retries})")
+                is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
+
+            if not is_normal_lost:
+                for key, param in normal_layers.items():
+                    self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+                print(f"LTQ中期：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
+            else:
+                print(f"LTQ中期：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
+
+        return total_transmission_time, actual_received_size
+
+    def _handle_ltq_late_phase(self, client, client_id, drop_list_layers, normal_layers,
+                            drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
+        """LTQ后期阶段：任何层都不重传（类似UDP）"""
+        print("LTQ后期策略：任何层都不重传")
+        return self._handle_udp_transmission(client, client_id, drop_list_layers, normal_layers,
+                                        drop_list_size, normal_size, is_drop_list_lost, is_normal_lost)
 
     def finalize_round_transmission_time(self):
         """完成本轮传输，记录最大传输时间"""

@@ -224,12 +224,16 @@ class Server:
         
         # 方案3: 混合策略（轮次 + 精度）
         else:  # 'hybrid'
-            # 最少要训练多少轮才能进入中期/后期
-            min_middle_round = int(total_rounds * 0.4)
-            min_late_round = int(total_rounds * 0.7)
+            # 从配置文件读取轮次比例
+            early_ratio = self.config['ltq_early_ratio']
+            middle_ratio = self.config['ltq_middle_ratio']
+            # 计算最小中期和后期轮次
+            min_middle_round = int(total_rounds * early_ratio)
+            min_late_round = int(total_rounds * (early_ratio + middle_ratio))
             
-            early_acc_threshold = self.config.get('ltq_early_acc_threshold', 40.0)
-            middle_acc_threshold = self.config.get('ltq_middle_acc_threshold', 70.0)
+            # 从配置文件读取精度阈值
+            early_acc_threshold = self.config['ltq_early_acc_threshold']
+            middle_acc_threshold = self.config['ltq_middle_acc_threshold']
             
             if current_round < min_middle_round or (current_accuracy is not None and current_accuracy < early_acc_threshold):
                 return 'early'

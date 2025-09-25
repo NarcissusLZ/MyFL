@@ -231,9 +231,9 @@ class Server:
             early_acc_threshold = self.config.get('ltq_early_acc_threshold', 25.0)
             middle_acc_threshold = self.config.get('ltq_middle_acc_threshold', 55.0)
             
-            if current_round < min_middle_round or (current_accuracy and current_accuracy < early_acc_threshold):
+            if current_round < min_middle_round or (current_accuracy is not None and current_accuracy < early_acc_threshold):
                 return 'early'
-            elif current_round < min_late_round or (current_accuracy and current_accuracy < middle_acc_threshold):
+            elif current_round < min_late_round or (current_accuracy is not None and current_accuracy < middle_acc_threshold):
                 return 'middle'
             else:
                 return 'late'

@@ -196,28 +196,32 @@ class Server:
         total_rounds = self.config['num_rounds']
         
         # 方案1: 纯轮次划分
-        if self.config.get('ltq_phase_method', 'rounds') == 'rounds':
-            early_ratio = self.config.get('ltq_early_ratio', 0.3)  # 前30%
-            middle_ratio = self.config.get('ltq_middle_ratio', 0.5)  # 中50%
+        if self.config['ltq_phase_method'] == 'rounds':
+            # 从配置文件读取轮次比例
+            early_ratio = self.config['ltq_early_ratio']
+            middle_ratio = self.config['ltq_middle_ratio']
+            # 计算最小中期和后期轮次
+            min_middle_round = int(total_rounds * early_ratio)
+            min_late_round = int(total_rounds * middle_ratio)
             
-            if current_round <= total_rounds * early_ratio:
+            if current_round <= min_middle_round:
                 return 'early'
-            elif current_round <= total_rounds * (early_ratio + middle_ratio):
+            elif current_round <= min_late_round:
                 return 'middle'
             else:
                 return 'late'
         
         # 方案2: 基于精度的自适应划分
-        elif self.config.get('ltq_phase_method', 'rounds') == 'accuracy':
+        elif self.config['ltq_phase_method'] == 'accuracy':
             if current_accuracy is None:
                 return 'early'  # 如果没有精度信息，默认早期
             
-            early_threshold = self.config.get('ltq_early_acc_threshold', 30.0)  # 30%精度以下为早期
-            middle_threshold = self.config.get('ltq_middle_acc_threshold', 60.0)  # 60%精度以下为中期
-            
-            if current_accuracy < early_threshold:
+            early_acc_threshold = self.config['ltq_early_acc_threshold']
+            middle_acc_threshold = self.config['ltq_middle_acc_threshold']
+
+            if current_accuracy < early_acc_threshold:
                 return 'early'
-            elif current_accuracy < middle_threshold:
+            elif current_accuracy < middle_acc_threshold:
                 return 'middle'
             else:
                 return 'late'
@@ -229,7 +233,7 @@ class Server:
             middle_ratio = self.config['ltq_middle_ratio']
             # 计算最小中期和后期轮次
             min_middle_round = int(total_rounds * early_ratio)
-            min_late_round = int(total_rounds * (early_ratio + middle_ratio))
+            min_late_round = int(total_rounds * middle_ratio)
             
             # 从配置文件读取精度阈值
             early_acc_threshold = self.config['ltq_early_acc_threshold']

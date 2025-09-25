@@ -193,7 +193,7 @@ class Server:
         确定LTQ当前应该采用的策略阶段
         返回: 'early', 'middle', 'late'
         """
-        total_rounds = self.config['rounds']
+        total_rounds = self.config['num_rounds']
         
         # 方案1: 纯轮次划分
         if self.config.get('ltq_phase_method', 'rounds') == 'rounds':

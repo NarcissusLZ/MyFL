@@ -49,6 +49,8 @@ def save_results(config, history, server):
     for i, round_data in enumerate(comm_stats['每轮通信量记录']):
         if i < len(history['round']):
             history['up_communication'] = history.get('up_communication', []) + [round_data['up_communication']]
+            history['robust_layer_communication'] = history.get('robust_layer_communication', []) + [round_data['robust_layer_communication']]
+            history['critical_layer_communication'] = history.get('critical_layer_communication', []) + [round_data['critical_layer_communication']]
 
     # 添加传输时间到历史记录
     history['transmission_time'] = comm_stats['每轮最大传输时间']
@@ -58,9 +60,9 @@ def save_results(config, history, server):
     for i in range(len(history['round'])):
         logger.info(f"轮次 {history['round'][i]}: 准确率={history['accuracy'][i]:.2f}%, 损失={history['loss'][i]:.4f}")
 
-    result_plc(history, result_dir, timestamp, config)
+    result_plc(history, result_dir, timestamp, config, comm_stats)
 
-def result_plc(history, result_dir, timestamp, config):
+def result_plc(history, result_dir, timestamp, config, comm_stats=None):
     """Generate training process chart with English labels"""
     logger.info("\nGenerating training process chart...")
 
@@ -113,23 +115,45 @@ def result_plc(history, result_dir, timestamp, config):
     plt.grid(True, linestyle='--', alpha=0.7)
 
 
-    # Communication per round plot
-    if 'up_communication' in history:
+    # Communication layers bar chart
+    if comm_stats and '每轮通信量记录' in comm_stats:
         plt.subplot(2, 2, 3)
-        # plt.plot(history['round'], history['down_communication'], 'g-', marker='d', label='Downstream')
-        plt.plot(history['round'], history['up_communication'], 'm-', marker='^', label='Upstream')
-        plt.title('Communication per Round (MB)', fontsize=14)
-        plt.xlabel('Rounds', fontsize=12)
+        
+        # 获取总流量数据
+        total_robust = comm_stats.get('总鲁棒层通信量(MB)', 0)
+        total_critical = comm_stats.get('总关键层通信量(MB)', 0)
+        total_overall = comm_stats.get('总上行通信量(MB)', 0)
+        
+        # 创建柱状图数据
+        categories = ['Total\nCommunication', 'Robust\nLayers', 'Critical\nLayers']
+        values = [total_overall, total_robust, total_critical]
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # 蓝色、橙色、绿色
+        
+        bars = plt.bar(categories, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
+        
+        # 在柱子上添加数值标注
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.01,
+                    f'{value:.2f}MB',
+                    ha='center', va='bottom', fontsize=10, fontweight='bold')
+        
+        plt.title('Total Communication by Layer Type', fontsize=14)
         plt.ylabel('Communication (MB)', fontsize=12)
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
-
-        # 添加总通信量标注
-        total_comm = np.sum(history['up_communication'])
-        plt.text(0.05, 0.95, f'Total: {total_comm:.2f} MB',
-                 transform=plt.gca().transAxes,
-                 bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
-                 fontsize=12, verticalalignment='top')
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+        
+        # 设置Y轴范围，留出空间给标注
+        plt.ylim(0, max(values) * 1.15)
+        
+        # 添加百分比信息
+        if total_overall > 0:
+            robust_percent = (total_robust / total_overall) * 100
+            critical_percent = (total_critical / total_overall) * 100
+            plt.text(0.02, 0.98, 
+                    f'Robust: {robust_percent:.1f}%\nCritical: {critical_percent:.1f}%',
+                    transform=plt.gca().transAxes,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
+                    fontsize=10, verticalalignment='top')
 
         # 传输时间图
         if 'transmission_time' in history and history['transmission_time']:

@@ -44,6 +44,12 @@ class Server:
         self.round_transmission_times = {}  # 当前轮次各客户端传输时间
         self.max_transmission_times = []  # 每轮最大传输时间记录
         
+        # 添加传输次数统计
+        self.total_robust_transmission_count = 0  # 鲁棒层总传输次数
+        self.total_critical_transmission_count = 0  # 关键层总传输次数
+        self.round_robust_transmission_count = 0  # 当前轮次鲁棒层传输次数
+        self.round_critical_transmission_count = 0  # 当前轮次关键层传输次数
+        
         # 记录聚合权重
         self.client_weights = {}
         
@@ -301,13 +307,13 @@ class Server:
         
         # 根据传输协议处理丢包和重传
         if transport_type == 'TCP':
-            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size = self._handle_tcp_transmission(
+            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size, robust_count, critical_count = self._handle_tcp_transmission(
                 client, client_id, drop_list_layers, normal_layers, 
                 drop_list_size, normal_size, is_drop_list_lost, is_normal_lost
             )
 
         elif transport_type == 'UDP':
-            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size = self._handle_udp_transmission(
+            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size, robust_count, critical_count = self._handle_udp_transmission(
                 client, client_id, drop_list_layers, normal_layers,
                 drop_list_size, normal_size, is_drop_list_lost, is_normal_lost
             )
@@ -321,7 +327,7 @@ class Server:
             else:
                 print(f"LTQ模式：当前处于 {ltq_phase} 阶段（轮次: {current_round}, 精度: 未知）")
             
-            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size = self._handle_ltq_transmission(
+            total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size, robust_count, critical_count = self._handle_ltq_transmission(
                 client, client_id, drop_list_layers, normal_layers,
                 drop_list_size, normal_size, is_drop_list_lost, is_normal_lost, ltq_phase
             )
@@ -338,6 +344,12 @@ class Server:
         self.total_critical_communication += critical_layer_received_size
         self.round_robust_communication += robust_layer_received_size
         self.round_critical_communication += critical_layer_received_size
+        
+        # 更新传输次数统计
+        self.total_robust_transmission_count += robust_count
+        self.total_critical_transmission_count += critical_count
+        self.round_robust_transmission_count += robust_count
+        self.round_critical_transmission_count += critical_count
 
         print(f"服务器已接收客户端 {client_id} 的更新:")
         print(f"  实际接收数据量: {actual_received_size / 1024 / 1024:.2f} MB")
@@ -354,6 +366,8 @@ class Server:
         actual_received_size = 0
         robust_layer_size = 0  # 鲁棒层实际接收流量
         critical_layer_size = 0  # 关键层实际接收流量
+        robust_transmission_count = 0  # 鲁棒层传输次数
+        critical_transmission_count = 0  # 关键层传输次数
         max_retries = 16
 
         # 处理鲁棒层
@@ -362,10 +376,12 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += drop_list_size
             robust_layer_size += drop_list_size
+            robust_transmission_count = 1  # 初始传输
 
             retries_drop = 0
             while is_drop_list_lost and retries_drop < max_retries:
                 retries_drop += 1
+                robust_transmission_count += 1  # 记录重传次数
                 retrans_time, _ = client.calculate_transmission_time(drop_list_size)
                 total_transmission_time += retrans_time
                 actual_received_size += drop_list_size
@@ -376,7 +392,7 @@ class Server:
             if not is_drop_list_lost:
                 for key, param in drop_list_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{retries_drop + 1}")
+                print(f"TCP模式：客户端{client_id}的鲁棒层成功接收，总传输次数：{robust_transmission_count}")
             else:
                 print(f"TCP模式：客户端{client_id}的鲁棒层重传失败，使用全局模型对应层替代")
 
@@ -386,10 +402,12 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += normal_size
             critical_layer_size += normal_size
+            critical_transmission_count = 1  # 初始传输
 
             retries_normal = 0
             while is_normal_lost and retries_normal < max_retries:
                 retries_normal += 1
+                critical_transmission_count += 1  # 记录重传次数
                 retrans_time, _ = client.calculate_transmission_time(normal_size)
                 total_transmission_time += retrans_time
                 actual_received_size += normal_size
@@ -400,11 +418,11 @@ class Server:
             if not is_normal_lost:
                 for key, param in normal_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
+                print(f"TCP模式：客户端{client_id}的关键层成功接收，总传输次数：{critical_transmission_count}")
             else:
                 print(f"TCP模式：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
 
-        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size
+        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size, robust_transmission_count, critical_transmission_count
 
     def _handle_udp_transmission(self, client, client_id, drop_list_layers, normal_layers,
                             drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
@@ -413,6 +431,8 @@ class Server:
         actual_received_size = 0
         robust_layer_size = 0  # 鲁棒层实际接收流量
         critical_layer_size = 0  # 关键层实际接收流量
+        robust_transmission_count = 0  # 鲁棒层传输次数
+        critical_transmission_count = 0  # 关键层传输次数
 
         # 处理鲁棒层
         if drop_list_layers:
@@ -420,6 +440,7 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += drop_list_size
             robust_layer_size += drop_list_size
+            robust_transmission_count = 1  # UDP只传输一次
             
             if not is_drop_list_lost:
                 for key, param in drop_list_layers.items():
@@ -434,6 +455,7 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += normal_size
             critical_layer_size += normal_size
+            critical_transmission_count = 1  # UDP只传输一次
             
             if not is_normal_lost:
                 for key, param in normal_layers.items():
@@ -442,7 +464,7 @@ class Server:
             else:
                 print(f"UDP模式：客户端{client_id}的关键层丢包，使用全局模型对应层替代")
 
-        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size
+        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size, robust_transmission_count, critical_transmission_count
 
     def _handle_ltq_transmission(self, client, client_id, drop_list_layers, normal_layers,
                             drop_list_size, normal_size, is_drop_list_lost, is_normal_lost, ltq_phase):
@@ -472,6 +494,8 @@ class Server:
         actual_received_size = 0
         robust_layer_size = 0  # 鲁棒层实际接收流量
         critical_layer_size = 0  # 关键层实际接收流量
+        robust_transmission_count = 0  # 鲁棒层传输次数
+        critical_transmission_count = 0  # 关键层传输次数
         max_retries = 16
 
         # 处理鲁棒层（不重传）
@@ -480,6 +504,7 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += drop_list_size
             robust_layer_size += drop_list_size
+            robust_transmission_count = 1  # 只传输一次
             
             if not is_drop_list_lost:
                 for key, param in drop_list_layers.items():
@@ -494,10 +519,12 @@ class Server:
             total_transmission_time += transmission_time
             actual_received_size += normal_size
             critical_layer_size += normal_size
+            critical_transmission_count = 1  # 初始传输
             
             retries_normal = 0
             while is_normal_lost and retries_normal < max_retries:
                 retries_normal += 1
+                critical_transmission_count += 1  # 记录重传次数
                 retrans_time, _ = client.calculate_transmission_time(normal_size)
                 total_transmission_time += retrans_time
                 actual_received_size += normal_size
@@ -508,11 +535,11 @@ class Server:
             if not is_normal_lost:
                 for key, param in normal_layers.items():
                     self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
-                print(f"LTQ中期：客户端{client_id}的关键层成功接收，总传输次数：{retries_normal + 1}")
+                print(f"LTQ中期：客户端{client_id}的关键层成功接收，总传输次数：{critical_transmission_count}")
             else:
                 print(f"LTQ中期：客户端{client_id}的关键层重传失败，使用全局模型对应层替代")
 
-        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size
+        return total_transmission_time, actual_received_size, robust_layer_size, critical_layer_size, robust_transmission_count, critical_transmission_count
 
     def _handle_ltq_late_phase(self, client, client_id, drop_list_layers, normal_layers,
                             drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
@@ -548,6 +575,8 @@ class Server:
         self.round_up_communication = 0
         self.round_robust_communication = 0
         self.round_critical_communication = 0
+        self.round_robust_transmission_count = 0
+        self.round_critical_transmission_count = 0
         self.round_transmission_times = {}  # 清空本轮传输时间记录
         self.client_weights = {}
 
@@ -557,6 +586,8 @@ class Server:
             "总上行通信量(MB)": self.total_up_communication / (1024 * 1024),
             "总鲁棒层通信量(MB)": self.total_robust_communication / (1024 * 1024),
             "总关键层通信量(MB)": self.total_critical_communication / (1024 * 1024),
+            "总鲁棒层传输次数": self.total_robust_transmission_count,
+            "总关键层传输次数": self.total_critical_transmission_count,
             "每轮通信量记录": self.communication_history,
             "每轮最大传输时间": self.max_transmission_times  # 新增传输时间记录
         }

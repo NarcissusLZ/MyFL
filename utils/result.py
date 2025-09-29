@@ -124,36 +124,48 @@ def result_plc(history, result_dir, timestamp, config, comm_stats=None):
         total_critical = comm_stats.get('总关键层通信量(MB)', 0)
         total_overall = comm_stats.get('总上行通信量(MB)', 0)
         
-        # 创建柱状图数据
-        categories = ['Total\nCommunication', 'Robust\nLayers', 'Critical\nLayers']
-        values = [total_overall, total_robust, total_critical]
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # 蓝色、橙色、绿色
+        # 获取传输次数数据
+        robust_count = comm_stats.get('总鲁棒层传输次数', 0)
+        critical_count = comm_stats.get('总关键层传输次数', 0)
+        
+        # 创建柱状图数据 - 调整顺序：鲁棒层、关键层、总和
+        categories = ['Robust\nLayers', 'Critical\nLayers', 'Total\nCommunication']
+        values = [total_robust, total_critical, total_overall]
+        colors = ['#ff7f0e', '#2ca02c', '#1f77b4']  # 橙色、绿色、蓝色
         
         bars = plt.bar(categories, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
         
         # 在柱子上添加数值标注
-        for bar, value in zip(bars, values):
+        for i, (bar, value) in enumerate(zip(bars, values)):
             height = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.01,
                     f'{value:.2f}MB',
                     ha='center', va='bottom', fontsize=10, fontweight='bold')
+            
+            # 添加传输次数标注（只对前两个柱子）
+            if i < 2:  # 只对鲁棒层和关键层添加传输次数
+                count = robust_count if i == 0 else critical_count
+                plt.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.06,
+                        f'({count} trans)',
+                        ha='center', va='bottom', fontsize=9, style='italic', color='darkred')
         
         plt.title('Total Communication by Layer Type', fontsize=14)
         plt.ylabel('Communication (MB)', fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
         
-        # 设置Y轴范围，留出空间给标注
-        plt.ylim(0, max(values) * 1.15)
+        # 设置Y轴范围，留出更多空间给标注
+        plt.ylim(0, max(values) * 1.2)
         
-        # 添加百分比信息
+        # 添加百分比和传输次数信息
         if total_overall > 0:
             robust_percent = (total_robust / total_overall) * 100
             critical_percent = (total_critical / total_overall) * 100
             plt.text(0.02, 0.98, 
-                    f'Robust: {robust_percent:.1f}%\nCritical: {critical_percent:.1f}%',
+                    f'Robust: {robust_percent:.1f}% ({robust_count} transmissions)\n'
+                    f'Critical: {critical_percent:.1f}% ({critical_count} transmissions)',
                     transform=plt.gca().transAxes,
                     bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
-                    fontsize=10, verticalalignment='top')
+                    fontsize=9, verticalalignment='top')
 
         # 传输时间图
         if 'transmission_time' in history and history['transmission_time']:

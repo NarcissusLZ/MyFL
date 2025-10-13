@@ -14,8 +14,6 @@ class Client:
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
-        self.distance_seed = 42
-        self.distance_generator = np.random.RandomState(self.distance_seed)
         self.distance = self.generate_distance()
 
         # 通信参数
@@ -55,16 +53,13 @@ class Client:
 
     def generate_distance(self, mean=25, std=8.33):
         """
-        生成符合正态分布的距离值
-        mean: 均值，默认50米
-        std: 标准差，默认8.33（使得99.7%的值在1-50范围内）
+        生成符合正态分布的距离值，基于客户端ID确保不同客户端有不同距离
         """
-        if self.distance_generator is None:
-            # 如果没有设置种子，使用默认种子
-            self.distance_generator = np.random.RandomState(42)
+        # 使用固定种子与客户端ID混合
+        np.random.seed(42 + self.id)
 
         # 生成正态分布的距离值
-        distance = self.distance_generator.normal(mean, std)
+        distance = np.random.normal(mean, std)
 
         # 限制在合理范围内（1-50米）
         distance = max(1, min(50, distance))

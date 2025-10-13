@@ -102,6 +102,7 @@ class Client:
         """计算信噪比"""
         received_power = self._calculate_received_power()
         snr = received_power / self.noise_power
+        print(snr)
         return snr
 
     def _calculate_data_rate(self):

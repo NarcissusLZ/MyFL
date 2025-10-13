@@ -87,7 +87,7 @@ class Client:
         return total_noise
 
     def _calculate_path_loss(self):
-        """计算路径损耗（包含自由空间损耗、阴影衰落和瑞丽衰落）"""
+        """计算路径损耗（更真实的瑞丽衰落实现）"""
         # 基础自由空间路径损耗
         freq_mhz = self.frequency / 1e6
         base_path_loss_db = 20 * math.log10(self.distance) + 20 * math.log10(freq_mhz) - 27.55
@@ -102,11 +102,14 @@ class Client:
 
         # 瑞丽衰落（多径效应）
         np.random.seed(42 + self.id + 100)  # 不同的种子
-        # 生成瑞丽分布的衰落
-        rayleigh_real = np.random.normal(0, 1)
-        rayleigh_imag = np.random.normal(0, 1)
-        rayleigh_amplitude = np.sqrt(rayleigh_real ** 2 + rayleigh_imag ** 2)
-        rayleigh_fading_db = -20 * math.log10(rayleigh_amplitude)  # 转换为dB，通常为负值
+
+        # 正确的瑞丽分布生成（幅度服从瑞丽分布）
+        # 瑞丽分布的幅度均值为√(π/2)≈1.253，我们需要它在0.2-2.0之间
+        rayleigh_scale = 0.5  # 控制瑞丽分布的尺度参数
+        rayleigh_amplitude = np.sqrt(-2 * rayleigh_scale * np.log(np.random.uniform(0.001, 0.999)))
+
+        # 转换为dB表示的损耗或增益
+        rayleigh_fading_db = 20 * math.log10(rayleigh_amplitude)  # 可能为正也可能为负
 
         # 总路径损耗
         total_path_loss_db = base_path_loss_db + shadow_fading_db + indoor_loss_db + rayleigh_fading_db
@@ -141,21 +144,32 @@ class Client:
         # 香农公式: C = B * log2(1 + SNR)
         data_rate = self.bandwidth * math.log2(1 + snr)
         return data_rate
-    
+
     def calculate_packet_loss_rate(self, data_size_bytes):
-        """
-        根据论文公式计算丢包率
-        p_m = α * s_m * e^(-β * SNR)
-        其中 s_m 是数据大小（以字节为单位），α=0.644, β=1.043
-        """
+        """计算更真实的丢包率分布"""
         snr = self._calculate_snr()
-        
-        # 使用论文公式计算丢包率
-        packet_loss = self.alpha * data_size_bytes * math.exp(-self.beta * snr)
-        
-        # 确保丢包率在[0, 1]范围内
-        packet_loss = max(0.0, min(1.0, packet_loss))
-        
+        snr_db = 10 * math.log10(snr) if snr > 0 else -float('inf')
+
+        # 使用修改后的公式计算丢包率
+        # 使用logistic函数使丢包率在0-1之间平滑变化
+        snr_threshold = 15  # dB，SNR阈值
+        steepness = 0.3  # 曲线陡度
+
+        if snr_db < 0:  # SNR过低，几乎100%丢包
+            packet_loss = 0.99
+        else:
+            # logistic函数: 1/(1+e^(steepness*(SNR_dB-threshold)))
+            packet_loss = 1.0 / (1.0 + math.exp(steepness * (snr_db - snr_threshold)))
+
+        # 加入距离的影响
+        distance_factor = min(1.0, self.distance / 100)  # 距离因子，最大1.0
+        packet_loss = packet_loss * (0.5 + 0.5 * distance_factor)
+
+        # 引入随机性，避免极端值
+        np.random.seed(42 + self.id + 200)
+        random_factor = np.random.uniform(0.8, 1.2)
+        packet_loss = min(0.99, max(0.001, packet_loss * random_factor))
+
         return packet_loss
 
     def calculate_transmission_time(self, data_size_bytes):

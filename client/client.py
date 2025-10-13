@@ -91,15 +91,28 @@ class Client:
         return noise_power
 
     def _calculate_path_loss(self):
-        c = 3e8
-        # 基础自由空间路径损耗
-        basic_loss = (4 * math.pi * self.distance * self.frequency / c) ** 2
+        """计算综合路径损耗（单位为比值，非dB）"""
+        c = 3e8  # 光速
 
-        # 添加瑞利衰落（随机变化的多径效应）
-        rayleigh_factor_db = np.random.rayleigh(scale=5)  # 5dB的瑞利分布
-        rayleigh_factor = 10 ** (rayleigh_factor_db / 10)
+        # 完整的路径损耗模型，直接使用正确的路径损耗指数
+        path_loss_exponent = 3.5  # 典型室内环境为3-4
 
-        return basic_loss * rayleigh_factor
+        # 计算距离项的贡献（直接使用完整指数）
+        distance_factor = (4 * math.pi * self.frequency / c) ** 2 * (self.distance ** path_loss_exponent)
+
+        # 阴影衰落（注意转换为线性单位时要正确应用）
+        shadow_std_db = 8  # 标准差8dB
+        shadow_loss_db = np.random.normal(0, shadow_std_db)
+        shadow_loss = 10 ** (shadow_loss_db / 10)  # 正确转换为线性单位
+
+        # 墙壁损耗（正确地减少接收功率）
+        wall_loss_db = 15
+        wall_loss = 10 ** (wall_loss_db / 10)
+
+        # 计算总路径损耗
+        total_path_loss = distance_factor * shadow_loss * wall_loss
+
+        return total_path_loss
 
     def _calculate_received_power(self):
         """计算接收功率"""

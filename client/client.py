@@ -94,23 +94,25 @@ class Client:
         """计算综合路径损耗（单位为比值，非dB）"""
         c = 3e8  # 光速
 
-        # 完整的路径损耗模型，直接使用正确的路径损耗指数
+        # 自由空间路径损耗（以dB为单位）
+        basic_loss_db = 20 * math.log10(4 * math.pi * self.distance * self.frequency / c)
+
+        # 增加路径损耗指数的影响（额外的路径损耗）
         path_loss_exponent = 3.5  # 典型室内环境为3-4
+        extra_path_loss_db = 10 * (path_loss_exponent - 2) * math.log10(self.distance)
 
-        # 计算距离项的贡献（直接使用完整指数）
-        distance_factor = (4 * math.pi * self.frequency / c) ** 2 * (self.distance ** path_loss_exponent)
-
-        # 阴影衰落（注意转换为线性单位时要正确应用）
+        # 阴影衰落（dB，负值表示额外衰减）
         shadow_std_db = 8  # 标准差8dB
-        shadow_loss_db = np.random.normal(0, shadow_std_db)
-        shadow_loss = 10 ** (shadow_loss_db / 10)  # 正确转换为线性单位
+        shadow_loss_db = -abs(np.random.normal(0, shadow_std_db))  # 确保为负值
 
-        # 墙壁损耗（正确地减少接收功率）
-        wall_loss_db = 15
-        wall_loss = 10 ** (wall_loss_db / 10)
+        # 墙壁损耗（dB，负值表示额外衰减）
+        wall_loss_db = -15  # 负值表示衰减
 
-        # 计算总路径损耗
-        total_path_loss = distance_factor * shadow_loss * wall_loss
+        # 计算总路径损耗（dB）
+        total_path_loss_db = basic_loss_db + extra_path_loss_db + shadow_loss_db + wall_loss_db
+
+        # 将dB转换为线性单位
+        total_path_loss = 10 ** (total_path_loss_db / 10)
 
         return total_path_loss
 

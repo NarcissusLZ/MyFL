@@ -83,21 +83,40 @@ class Client:
         return noise_power
 
     def _calculate_path_loss(self):
-        """计算自由空间路径损耗（单位为比值，非dB）"""
+        """计算综合路径损耗（单位为比值，非dB）"""
         c = 3e8  # 光速 (m/s)
+        wavelength = c / self.frequency  # 波长(m)
 
-        # 自由空间路径损耗公式 (FSPL)
-        # FSPL(dB) = 20*log10(d) + 20*log10(f) + 20*log10(4π/c)
-        # 或简化为: 20*log10(4πdf/c)
-        fspl_db = 20 * math.log10(4 * math.pi * self.distance * self.frequency / c)
+        # 自由空间路径损耗 (FSPL)，标准公式: 20*log10(4*pi*d/λ)
+        fspl_db = 20 * math.log10(4 * math.pi * self.distance / wavelength)
 
-        # 打印调试信息
-        print(f"客户端 {self.id} 自由空间损耗: {fspl_db:.2f}dB (距离={self.distance}m)")
+        # 或者等效公式: 20*log10(d) + 20*log10(f) + 20*log10(4*pi/c)
+        # fspl_db = 20 * math.log10(self.distance) + 20 * math.log10(self.frequency) - 147.55
+
+        # 环境路径损耗指数影响 (2为自由空间，3.5为典型室内)
+        path_loss_exponent = 3.5
+        environment_loss_db = 10 * path_loss_exponent * math.log10(self.distance)
+
+        # 阴影衰落 (使用固定种子)
+        np.random.seed(self.distance_seed + self.id)  # 使用客户端ID和距离种子固定随机性
+        shadow_std_db = 4  # 降低到更合理的值
+        shadow_loss_db = np.random.normal(0, shadow_std_db)  # 可以是正负值
+
+        # 障碍物损耗 (如墙壁)
+        obstacle_loss_db = 10  # 典型墙壁损耗
+
+        # 计算总路径损耗 (dB)
+        # 使用更准确的模型：基于FSPL或环境损耗模型二选一，不要两者都用
+        total_path_loss_db = environment_loss_db + abs(shadow_loss_db) + obstacle_loss_db
+
+        # 记录路径损耗详情用于调试
+        print(f"客户端 {self.id} 路径损耗详情: 基础={environment_loss_db:.2f}dB, 阴影={shadow_loss_db:.2f}dB, "
+              f"障碍物={obstacle_loss_db:.2f}dB, 总计={total_path_loss_db:.2f}dB")
 
         # 将dB转换为线性单位
-        path_loss = 10 ** (fspl_db / 10)
+        total_path_loss = 10 ** (total_path_loss_db / 10)
 
-        return path_loss
+        return total_path_loss
 
     def _calculate_received_power(self):
         """计算接收功率"""

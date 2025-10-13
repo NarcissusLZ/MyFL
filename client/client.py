@@ -83,30 +83,21 @@ class Client:
         return noise_power
 
     def _calculate_path_loss(self):
-        """计算综合路径损耗（单位为比值，非dB）"""
-        c = 3e8  # 光速
+        """计算自由空间路径损耗（单位为比值，非dB）"""
+        c = 3e8  # 光速 (m/s)
 
-        # 自由空间路径损耗（以dB为单位）
-        basic_loss_db = 20 * math.log10(4 * math.pi * self.distance * self.frequency / c)
+        # 自由空间路径损耗公式 (FSPL)
+        # FSPL(dB) = 20*log10(d) + 20*log10(f) + 20*log10(4π/c)
+        # 或简化为: 20*log10(4πdf/c)
+        fspl_db = 20 * math.log10(4 * math.pi * self.distance * self.frequency / c)
 
-        # 增加路径损耗指数的影响（额外的路径损耗）
-        path_loss_exponent = 3.5  # 典型室内环境为3-4
-        extra_path_loss_db = 10 * (path_loss_exponent - 2) * math.log10(self.distance)
-
-        # 阴影衰落（dB，正值表示衰减）
-        shadow_std_db = 8  # 标准差8dB
-        shadow_loss_db = abs(np.random.normal(0, shadow_std_db))  # 确保为正值
-
-        # 墙壁损耗（dB，正值表示衰减）
-        wall_loss_db = 15  # 正值表示衰减
-
-        # 计算总路径损耗（dB）
-        total_path_loss_db = basic_loss_db + extra_path_loss_db + shadow_loss_db + wall_loss_db
+        # 打印调试信息
+        print(f"客户端 {self.id} 自由空间损耗: {fspl_db:.2f}dB (距离={self.distance}m)")
 
         # 将dB转换为线性单位
-        total_path_loss = 10 ** (total_path_loss_db / 10)
+        path_loss = 10 ** (fspl_db / 10)
 
-        return total_path_loss
+        return path_loss
 
     def _calculate_received_power(self):
         """计算接收功率"""

@@ -72,46 +72,41 @@ class Client:
         return round(distance, 2)
 
     def _calculate_noise_power(self):
-        """计算噪声功率（加性高斯白噪声）"""
+        """计算噪声功率（包括热噪声和环境噪声）"""
         # 热噪声功率 = k * T * B
-        # k = 1.38e-23 (玻尔兹曼常数)
-        # T = 290K (室温)
-        # B = 带宽
         k_boltzmann = 1.38e-23
         temperature = 290  # K
-        noise_power = k_boltzmann * temperature * self.bandwidth
-        return noise_power
+        thermal_noise = k_boltzmann * temperature * self.bandwidth
+
+        # 添加接收器噪声系数 (Noise Figure, NF)
+        noise_figure_db = 7  # 典型接收器噪声系数为5-10dB
+        noise_figure = 10 ** (noise_figure_db / 10)
+
+        # 添加背景噪声和干扰
+        background_noise_dbm = -90  # 典型背景噪声和干扰为-100到-80dBm
+        background_noise = 10 ** ((background_noise_dbm - 30) / 10)  # 转换为W
+
+        # 总噪声功率
+        total_noise = thermal_noise * noise_figure + background_noise
+
+        return total_noise
 
     def _calculate_path_loss(self):
-        """计算综合路径损耗（单位为比值，非dB）"""
+        """计算自由空间路径损耗（单位为比值，非dB）"""
         c = 3e8  # 光速 (m/s)
-        wavelength = c / self.frequency  # 波长(m)
 
-        # 自由空间路径损耗 (FSPL)，标准公式: 20*log10(4*pi*d/λ)
-        fspl_db = 20 * math.log10(4 * math.pi * self.distance / wavelength)
+        # 标准自由空间路径损耗公式：FSPL(dB) = 20log10(d) + 20log10(f) - 27.55
+        # 其中d为距离(m)，f为频率(MHz)
+        freq_mhz = self.frequency / 1e6  # 转换为MHz
+        fspl_db = 20 * math.log10(self.distance) + 20 * math.log10(freq_mhz) - 27.55
 
-        # 或者等效公式: 20*log10(d) + 20*log10(f) + 20*log10(4*pi/c)
-        # fspl_db = 20 * math.log10(self.distance) + 20 * math.log10(self.frequency) - 147.55
+        # 考虑室内环境的额外衰减
+        indoor_loss_db = 10  # 室内额外损耗，单位dB
 
-        # 环境路径损耗指数影响 (2为自由空间，3.5为典型室内)
-        path_loss_exponent = 3.5
-        environment_loss_db = 10 * path_loss_exponent * math.log10(self.distance)
+        # 总路径损耗(dB)
+        total_path_loss_db = fspl_db + indoor_loss_db
 
-        # 阴影衰落 (使用固定种子)
-        np.random.seed(self.distance_seed + self.id)  # 使用客户端ID和距离种子固定随机性
-        shadow_std_db = 4  # 降低到更合理的值
-        shadow_loss_db = np.random.normal(0, shadow_std_db)  # 可以是正负值
-
-        # 障碍物损耗 (如墙壁)
-        obstacle_loss_db = 10  # 典型墙壁损耗
-
-        # 计算总路径损耗 (dB)
-        # 使用更准确的模型：基于FSPL或环境损耗模型二选一，不要两者都用
-        total_path_loss_db = environment_loss_db + abs(shadow_loss_db) + obstacle_loss_db
-
-        # 记录路径损耗详情用于调试
-        print(f"客户端 {self.id} 路径损耗详情: 基础={environment_loss_db:.2f}dB, 阴影={shadow_loss_db:.2f}dB, "
-              f"障碍物={obstacle_loss_db:.2f}dB, 总计={total_path_loss_db:.2f}dB")
+        print(f"客户端 {self.id} 路径损耗: {total_path_loss_db:.2f}dB (距离={self.distance}m)")
 
         # 将dB转换为线性单位
         total_path_loss = 10 ** (total_path_loss_db / 10)

@@ -300,8 +300,6 @@ class Server:
         actual_received_size = 0
         robust_layer_received_size = 0  # 鲁棒层实际接收的流量
         critical_layer_received_size = 0  # 关键层实际接收的流量
-        robust_count = 0  # 初始化鲁棒层传输次数
-        critical_count = 0  # 初始化关键层传输次数
         
         # 为两部分分别决定是否丢包
         is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])

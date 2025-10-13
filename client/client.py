@@ -101,12 +101,12 @@ class Client:
         path_loss_exponent = 3.5  # 典型室内环境为3-4
         extra_path_loss_db = 10 * (path_loss_exponent - 2) * math.log10(self.distance)
 
-        # 阴影衰落（dB，负值表示额外衰减）
+        # 阴影衰落（dB，正值表示衰减）
         shadow_std_db = 8  # 标准差8dB
-        shadow_loss_db = -abs(np.random.normal(0, shadow_std_db))  # 确保为负值
+        shadow_loss_db = abs(np.random.normal(0, shadow_std_db))  # 确保为正值
 
-        # 墙壁损耗（dB，负值表示额外衰减）
-        wall_loss_db = -15  # 负值表示衰减
+        # 墙壁损耗（dB，正值表示衰减）
+        wall_loss_db = 15  # 正值表示衰减
 
         # 计算总路径损耗（dB）
         total_path_loss_db = basic_loss_db + extra_path_loss_db + shadow_loss_db + wall_loss_db

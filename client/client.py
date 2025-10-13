@@ -14,7 +14,7 @@ class Client:
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
-        self.distance_seed = id * 100 + 42
+        self.distance_seed = 42
         self.distance_generator = np.random.RandomState(self.distance_seed)
         self.distance = self.generate_distance()
 
@@ -48,18 +48,10 @@ class Client:
         # 计算SNR
         snr = self._calculate_snr()
         snr_db = 10 * math.log10(snr) if snr > 0 else -float('inf')
-        self.packet_loss = self.calculate_packet_loss_rate(1024*1024)
+        self.packet_loss = self.calculate_packet_loss_rate(1500)
         
         print(f"客户端 {self.id} 初始化完成, 设备: {self.device}, 数据量: {len(local_dataset)}")
-        print(f"客户端 {self.id} 距离: {self.distance}m, SNR: {snr_db:.2f}dB")
-        print(f"客户端 {self.id} 等待服务器下发模型")
-
-
-    def set_distance_seed(self, seed):
-        """设置距离分配的随机种子"""
-        self.distance_seed = seed
-        self.distance_generator = np.random.RandomState(seed)
-        print(f"客户端 {self.id} 距离分配种子设置为: {seed}")
+        print(f"客户端 {self.id} 距离: {self.distance}m, SNR: {snr_db:.2f}dB, 丢包率: {self.packet_loss:.3f}")
 
     def generate_distance(self, mean=25, std=8.33):
         """

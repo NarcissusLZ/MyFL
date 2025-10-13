@@ -152,8 +152,8 @@ def main():
                 update['client'],  # 传递客户端对象而非ID
                 update['model_state'],
                 update['num_samples'],
-                current_round=round + 1,  # ✅ 添加当前轮次
-                current_accuracy=current_accuracy  # ✅ 添加当前精度
+                current_round=round + 1,  # 添加当前轮次
+                current_accuracy=current_accuracy  # 添加当前精度
             )
             
             if not success:

@@ -61,7 +61,7 @@ class Client:
         self.distance_generator = np.random.RandomState(seed)
         print(f"客户端 {self.id} 距离分配种子设置为: {seed}")
 
-    def generate_distance(self, mean=50, std=8.33):
+    def generate_distance(self, mean=10, std=8.33):
         """
         生成符合正态分布的距离值
         mean: 均值，默认50米

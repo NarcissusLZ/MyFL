@@ -19,7 +19,7 @@ class Client:
         print(f"客户端距离分配种子设置为: {seed}")
 
     @classmethod
-    def generate_distance(cls, mean=50, std=8.33):
+    def generate_distance(cls, mean=25, std=8.33):
         """
         生成符合正态分布的距离值
         mean: 均值，默认25米

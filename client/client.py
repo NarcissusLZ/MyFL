@@ -87,21 +87,33 @@ class Client:
         return total_noise
 
     def _calculate_path_loss(self):
-        """计算自由空间路径损耗（单位为比值，非dB）"""
-        c = 3e8  # 光速 (m/s)
+        """计算路径损耗（包含自由空间损耗、阴影衰落和瑞丽衰落）"""
+        # 基础自由空间路径损耗
+        freq_mhz = self.frequency / 1e6
+        base_path_loss_db = 20 * math.log10(self.distance) + 20 * math.log10(freq_mhz) - 27.55
 
-        # 标准自由空间路径损耗公式：FSPL(dB) = 20log10(d) + 20log10(f) - 27.55
-        # 其中d为距离(m)，f为频率(MHz)
-        freq_mhz = self.frequency / 1e6  # 转换为MHz
-        fspl_db = 20 * math.log10(self.distance) + 20 * math.log10(freq_mhz) - 27.55
+        # 阴影衰落（对数正态分布）
+        np.random.seed(42 + self.id)
+        shadow_std = 4.0  # 室内环境标准差通常在4-6dB
+        shadow_fading_db = np.random.normal(0, shadow_std)
 
-        # 考虑室内环境的额外衰减
+        # 室内额外损耗
         indoor_loss_db = 10  # 室内额外损耗，单位dB
 
-        # 总路径损耗(dB)
-        total_path_loss_db = fspl_db + indoor_loss_db
+        # 瑞丽衰落（多径效应）
+        np.random.seed(42 + self.id + 100)  # 不同的种子
+        # 生成瑞丽分布的衰落
+        rayleigh_real = np.random.normal(0, 1)
+        rayleigh_imag = np.random.normal(0, 1)
+        rayleigh_amplitude = np.sqrt(rayleigh_real ** 2 + rayleigh_imag ** 2)
+        rayleigh_fading_db = -20 * math.log10(rayleigh_amplitude)  # 转换为dB，通常为负值
 
-        print(f"客户端 {self.id} 路径损耗: {total_path_loss_db:.2f}dB (距离={self.distance}m)")
+        # 总路径损耗
+        total_path_loss_db = base_path_loss_db + shadow_fading_db + indoor_loss_db + rayleigh_fading_db
+
+        print(f"客户端 {self.id} 路径损耗详情: 基础={base_path_loss_db:.2f}dB, "
+              f"阴影={shadow_fading_db:.2f}dB, 室内={indoor_loss_db:.2f}dB, "
+              f"瑞丽={rayleigh_fading_db:.2f}dB, 总计={total_path_loss_db:.2f}dB")
 
         # 将dB转换为线性单位
         total_path_loss = 10 ** (total_path_loss_db / 10)

@@ -7,35 +7,6 @@ from tqdm import tqdm
 import numpy as np
 
 class Client:
-    # 类变量，用于控制距离分配
-    _distance_seed = None
-    _distance_generator = None
-
-    @classmethod
-    def set_distance_seed(cls, seed):
-        """设置距离分配的随机种子"""
-        cls._distance_seed = seed
-        cls._distance_generator = np.random.RandomState(seed)
-        print(f"客户端距离分配种子设置为: {seed}")
-
-    @classmethod
-    def generate_distance(cls, mean=50, std=8.33):
-        """
-        生成符合正态分布的距离值
-        mean: 均值，默认25米
-        std: 标准差，默认8.33（使得99.7%的值在1-50范围内）
-        """
-        if cls._distance_generator is None:
-            # 如果没有设置种子，使用默认种子
-            cls._distance_generator = np.random.RandomState(42)
-
-        # 生成正态分布的距离值
-        distance = cls._distance_generator.normal(mean, std)
-
-        # 限制在合理范围内（1-50米）
-        distance = max(1, min(50, distance))
-
-        return round(distance, 2)
 
     def __init__(self, id, config, local_dataset, gpu_id=None):
         self.id = id
@@ -43,14 +14,19 @@ class Client:
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
+        self.distance_seed = None
+        self.distance_generator = None
         self.distance = self.generate_distance()
-        self.packet_loss = self.distance * 0.01
 
         # 通信参数
         self.tx_power = 0.1  # 发射功率 100mW = 0.1W
         self.frequency = 2.4e9  # 频率 2.4GHz
         self.bandwidth = 20e6  # 带宽 20MHz
         self.noise_power = self._calculate_noise_power()
+        
+        # 环境相关指数（Open field - LOS）
+        self.alpha = 0.644
+        self.beta = 1.043
 
         # 传输统计
         self.total_transmission_time = 0.0
@@ -65,13 +41,42 @@ class Client:
             local_dataset,
             batch_size=config['batch_size'],
             shuffle=True,
-            drop_last=True,  # 丢弃最后一个不完整的batch
+            drop_last=True,
             num_workers=config.get('num_workers', 0)
         )
 
+        # 计算SNR
+        snr = self._calculate_snr()
+        snr_db = 10 * math.log10(snr) if snr > 0 else -float('inf')
+        
         print(f"客户端 {self.id} 初始化完成, 设备: {self.device}, 数据量: {len(local_dataset)}")
-        print(f"客户端 {self.id} 距离: {self.distance}m, 丢包率: {self.packet_loss:.3f}")
+        print(f"客户端 {self.id} 距离: {self.distance}m, SNR: {snr_db:.2f}dB")
         print(f"客户端 {self.id} 等待服务器下发模型")
+
+
+    def set_distance_seed(self, seed):
+        """设置距离分配的随机种子"""
+        self.distance_seed = seed
+        self.distance_generator = np.random.RandomState(seed)
+        print(f"客户端 {self.id} 距离分配种子设置为: {seed}")
+
+    def generate_distance(self, mean=50, std=8.33):
+        """
+        生成符合正态分布的距离值
+        mean: 均值，默认50米
+        std: 标准差，默认8.33（使得99.7%的值在1-50范围内）
+        """
+        if self.distance_generator is None:
+            # 如果没有设置种子，使用默认种子
+            self.distance_generator = np.random.RandomState(42)
+
+        # 生成正态分布的距离值
+        distance = self.distance_generator.normal(mean, std)
+
+        # 限制在合理范围内（1-50米）
+        distance = max(1, min(50, distance))
+
+        return round(distance, 2)
 
     def _calculate_noise_power(self):
         """计算噪声功率（加性高斯白噪声）"""
@@ -110,6 +115,22 @@ class Client:
         # 香农公式: C = B * log2(1 + SNR)
         data_rate = self.bandwidth * math.log2(1 + snr)
         return data_rate
+    
+    def calculate_packet_loss_rate(self, data_size_bytes):
+        """
+        根据论文公式计算丢包率
+        p_m = α * s_m * e^(-β * SNR)
+        其中 s_m 是数据大小（以字节为单位），α=0.644, β=1.043
+        """
+        snr = self._calculate_snr()
+        
+        # 使用论文公式计算丢包率
+        packet_loss = self.alpha * data_size_bytes * math.exp(-self.beta * snr)
+        
+        # 确保丢包率在[0, 1]范围内
+        packet_loss = max(0.0, min(1.0, packet_loss))
+        
+        return packet_loss
 
     def calculate_transmission_time(self, data_size_bytes):
         """计算单次传输时间（不考虑重传，由服务器端控制重传逻辑）"""

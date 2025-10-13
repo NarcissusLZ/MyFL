@@ -32,9 +32,6 @@ class Client:
         # 生成正态分布的距离值
         distance = cls._distance_generator.normal(mean, std)
 
-        # 限制在合理范围内（1-50米）
-        distance = max(1, min(50, distance))
-
         return round(distance, 2)
 
     def __init__(self, id, config, local_dataset, gpu_id=None):

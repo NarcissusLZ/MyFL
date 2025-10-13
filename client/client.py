@@ -25,8 +25,8 @@ class Client:
         self.noise_power = self._calculate_noise_power()
         
         # 环境相关指数（Open field - LOS）
-        self.alpha = 0.644
-        self.beta = 1.043
+        self.alpha = 0.084
+        self.beta = 0.356
 
         # 传输统计
         self.total_transmission_time = 0.0

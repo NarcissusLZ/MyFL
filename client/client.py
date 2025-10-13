@@ -91,12 +91,15 @@ class Client:
         return noise_power
 
     def _calculate_path_loss(self):
-        """计算自由空间路径损耗"""
-        # 自由空间路径损耗公式: L = (4πdf/c)²
-        # 其中 d是距离，f是频率，c是光速
-        c = 3e8  # 光速
-        path_loss_linear = (4 * math.pi * self.distance * self.frequency / c) ** 2
-        return path_loss_linear
+        c = 3e8
+        # 基础自由空间路径损耗
+        basic_loss = (4 * math.pi * self.distance * self.frequency / c) ** 2
+
+        # 添加瑞利衰落（随机变化的多径效应）
+        rayleigh_factor_db = np.random.rayleigh(scale=5)  # 5dB的瑞利分布
+        rayleigh_factor = 10 ** (rayleigh_factor_db / 10)
+
+        return basic_loss * rayleigh_factor
 
     def _calculate_received_power(self):
         """计算接收功率"""
@@ -111,7 +114,6 @@ class Client:
         snr_db = 10 * math.log10(snr) if snr > 0 else -float('inf')
         print(
             f"客户端 {self.id}: 接收功率={received_power:.2e}W, 噪声功率={self.noise_power:.2e}W, SNR={snr:.2e} ({snr_db:.2f}dB)")
-
         return snr
 
     def _calculate_data_rate(self):

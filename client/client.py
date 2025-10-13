@@ -82,6 +82,7 @@ class Client:
         k_boltzmann = 1.38e-23
         temperature = 290  # K
         noise_power = k_boltzmann * temperature * self.bandwidth
+        print(f"noise_power:{noise_power}")
         return noise_power
 
     def _calculate_path_loss(self):
@@ -96,13 +97,13 @@ class Client:
         """计算接收功率"""
         path_loss = self._calculate_path_loss()
         received_power = self.tx_power / path_loss
+        print(f"recive_power:{received_power}")
         return received_power
 
     def _calculate_snr(self):
         """计算信噪比"""
         received_power = self._calculate_received_power()
         snr = received_power / self.noise_power
-        print(snr)
         return snr
 
     def _calculate_data_rate(self):

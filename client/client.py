@@ -53,7 +53,7 @@ class Client:
             data = json.load(f)
         for device in data['devices']:
             if device['id'] == device_id:
-                return device['snr']
+                return device['plr']
         return None
 
     def get_distance(self,device_id, filename="communication_results.json"):
@@ -69,7 +69,7 @@ class Client:
             data = json.load(f)
         for device in data['devices']:
             if device['id'] == device_id:
-                return device['plr']
+                return device['snr']
         return None
 
     def calculate_data_rate(self):

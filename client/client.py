@@ -5,34 +5,9 @@ from torch.utils.data import DataLoader
 import time,math
 from tqdm import tqdm
 import numpy as np
+import json
 
 class Client:
-    # 类变量，用于控制距离分配
-    _distance_seed = None
-    _distance_generator = None
-
-    @classmethod
-    def set_distance_seed(cls, seed):
-        """设置距离分配的随机种子"""
-        cls._distance_seed = seed
-        cls._distance_generator = np.random.RandomState(seed)
-        print(f"客户端距离分配种子设置为: {seed}")
-
-    @classmethod
-    def generate_distance(cls, mean=50, std=8.33):
-        """
-        生成符合正态分布的距离值
-        mean: 均值，默认25米
-        std: 标准差，默认8.33（使得99.7%的值在1-50范围内）
-        """
-        if cls._distance_generator is None:
-            # 如果没有设置种子，使用默认种子
-            cls._distance_generator = np.random.RandomState(42)
-
-        # 生成正态分布的距离值
-        distance = cls._distance_generator.normal(mean, std)
-
-        return round(distance, 2)
 
     def __init__(self, id, config, local_dataset, gpu_id=None):
         self.id = id
@@ -40,14 +15,12 @@ class Client:
         self.local_dataset = local_dataset
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
-        self.distance = self.generate_distance()
-        self.packet_loss = 0.8
+        self.bandwidth = 2e6
+        self.distance = self.get_distance(device_id=self.id)
 
-        # 通信参数
-        self.tx_power = 0.1  # 发射功率 100mW = 0.1W
-        self.frequency = 2.4e9  # 频率 2.4GHz
-        self.bandwidth = 20e6  # 带宽 20MHz
-        self.noise_power = self._calculate_noise_power()
+        self.packet_loss = self.get_plr(self.id)
+
+        self.snr = self.get_snr(self.id)
 
         # 传输统计
         self.total_transmission_time = 0.0
@@ -70,49 +43,45 @@ class Client:
         print(f"客户端 {self.id} 距离: {self.distance}m, 丢包率: {self.packet_loss:.3f}")
         print(f"客户端 {self.id} 等待服务器下发模型")
 
-    def _calculate_noise_power(self):
-        """计算噪声功率（加性高斯白噪声）"""
-        # 热噪声功率 = k * T * B
-        # k = 1.38e-23 (玻尔兹曼常数)
-        # T = 290K (室温)
-        # B = 带宽
-        k_boltzmann = 1.38e-23
-        temperature = 290  # K
-        noise_power = k_boltzmann * temperature * self.bandwidth
-        print(f"noise_power:{noise_power}")
-        return noise_power
+    def load_communication_data(filename="communication_results.json"):
+        """加载JSON文件数据"""
+        with open(filename, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
-    def _calculate_path_loss(self):
-        """计算自由空间路径损耗"""
-        # 自由空间路径损耗公式: L = (4πdf/c)²
-        # 其中 d是距离，f是频率，c是光速
-        c = 3e8  # 光速
-        path_loss_linear = (4 * math.pi * self.distance * self.frequency / c) ** 2
-        return path_loss_linear
+    def get_plr(device_id, filename="communication_results.json"):
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for device in data['devices']:
+            if device['id'] == device_id:
+                return device['snr']
+        return None
 
-    def _calculate_received_power(self):
-        """计算接收功率"""
-        path_loss = self._calculate_path_loss()
-        received_power = self.tx_power / path_loss
-        print(f"recive_power:{received_power}")
-        return received_power
+    def get_distance(device_id, filename="communication_results.json"):
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for device in data['devices']:
+            if device['id'] == device_id:
+                return device['distance']
+        return None
 
-    def _calculate_snr(self):
-        """计算信噪比"""
-        received_power = self._calculate_received_power()
-        snr = received_power / self.noise_power
-        return snr
+    def get_snr(device_id, filename="communication_results.json"):
+        with open(filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for device in data['devices']:
+            if device['id'] == device_id:
+                return device['plr']
+        return None
 
-    def _calculate_data_rate(self):
+    def calculate_data_rate(self):
         """使用香农公式计算数据传输速度"""
-        snr = self._calculate_snr()
+        snr = self.snr
         # 香农公式: C = B * log2(1 + SNR)
         data_rate = self.bandwidth * math.log2(1 + snr)
         return data_rate
 
     def calculate_transmission_time(self, data_size_bytes):
         """计算单次传输时间（不考虑重传，由服务器端控制重传逻辑）"""
-        data_rate = self._calculate_data_rate()  # bps
+        data_rate = self.calculate_data_rate()  # bps
         transmission_time = (data_size_bytes * 8) / data_rate  # 转换为比特再除以速率
         return transmission_time, 1  # 返回传输时间和传输次数(1)
 

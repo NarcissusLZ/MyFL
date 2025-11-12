@@ -69,14 +69,15 @@ class Client:
             data = json.load(f)
         for device in data['devices']:
             if device['id'] == device_id:
-                return device['snr']
+                return device['snr_db']
         return None
 
     def calculate_data_rate(self):
         """使用香农公式计算数据传输速度"""
-        snr = self.snr
+        # 将分贝值转换为线性值
+        snr_linear = 10 ** (self.snr / 10)
         # 香农公式: C = B * log2(1 + SNR)
-        data_rate = self.bandwidth * math.log2(1 + snr)
+        data_rate = self.bandwidth * math.log2(1 + snr_linear)
         return data_rate
 
     def calculate_transmission_time(self, data_size_bytes):

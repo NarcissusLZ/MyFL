@@ -16,7 +16,7 @@ class Client:
         self.gpu_id = gpu_id
         self.device = self._select_device(config['device'])
         self.bandwidth = 2e6
-        self.distance = self.get_distance(device_id=self.id)
+        self.distance = self.get_distance(self.id)
 
         self.packet_loss = self.get_plr(self.id)
 
@@ -43,12 +43,12 @@ class Client:
         print(f"客户端 {self.id} 距离: {self.distance}m, 丢包率: {self.packet_loss:.3f}")
         print(f"客户端 {self.id} 等待服务器下发模型")
 
-    def load_communication_data(filename="communication_results.json"):
+    def load_communication_data(self,filename="communication_results.json"):
         """加载JSON文件数据"""
         with open(filename, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def get_plr(device_id, filename="communication_results.json"):
+    def get_plr(self,device_id, filename="communication_results.json"):
         with open(filename, 'r', encoding='utf-8') as f:
             data = json.load(f)
         for device in data['devices']:
@@ -56,7 +56,7 @@ class Client:
                 return device['snr']
         return None
 
-    def get_distance(device_id, filename="communication_results.json"):
+    def get_distance(self,device_id, filename="communication_results.json"):
         with open(filename, 'r', encoding='utf-8') as f:
             data = json.load(f)
         for device in data['devices']:
@@ -64,7 +64,7 @@ class Client:
                 return device['distance']
         return None
 
-    def get_snr(device_id, filename="communication_results.json"):
+    def get_snr(self,device_id, filename="communication_results.json"):
         with open(filename, 'r', encoding='utf-8') as f:
             data = json.load(f)
         for device in data['devices']:

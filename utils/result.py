@@ -130,7 +130,7 @@ def result_plc(history, result_dir, timestamp, config, comm_stats=None):
     # 图1: 准确率
     plt.figure(figsize=(10, 6))
     plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
-    plt.title(f'Training Accuracy - {model_name} on {dataset_name}', fontsize=16)
+    plt.title(f'Training Accuracy - {model_name} on {dataset_name} by {Transport}', fontsize=16)
     plt.xlabel('Rounds', fontsize=14)
     plt.ylabel('Accuracy (%)', fontsize=14)
     plt.ylim(0, 100)

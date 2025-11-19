@@ -62,151 +62,173 @@ def save_results(config, history, server):
 
     result_plc(history, result_dir, timestamp, config, comm_stats)
 
+
 def result_plc(history, result_dir, timestamp, config, comm_stats=None):
-    """Generate training process chart with English labels"""
-    logger.info("\nGenerating training process chart...")
+    """Generate separate charts and save training information as JSON"""
+    logger.info("\nGenerating separate training charts...")
 
     # Extract key parameters from config
     model_name = config.get('model', 'Unspecified')
     dataset_name = config.get('dataset', 'Unspecified')
-    Transport = config.get('Transport', 0.0)
+    Transport = config.get('Transport', 'TCP')
     num_clients = config.get('num_clients', 0)
     client_fraction = config.get('client_fraction', 0.0)
     local_epochs = config.get('local_epochs', 0)
-
-    # 获取丢失层信息
+    non_iid = config.get('non_iid', False)
+    non_iid_alpha = config.get('non_iid_alpha', 1.0)
     layers_to_drop = config.get('layers_to_drop', [])
-    layers_info = ", ".join(layers_to_drop) if layers_to_drop else "None"
 
-    # Create figure
-    fig = plt.figure(figsize=(15, 10))
+    # 创建单独的结果文件夹
+    charts_dir = os.path.join(result_dir, f"training_results_{timestamp}")
+    os.makedirs(charts_dir, exist_ok=True)
 
-    # 添加丢失层信息
-    dropped_layers_text = f"Dropped Layers: {layers_info}"
+    # 准备训练信息字典
+    training_info = {
+        "timestamp": timestamp,
+        "model": model_name,
+        "dataset": dataset_name,
+        "transport": Transport,
+        "num_clients": num_clients,
+        "client_fraction": client_fraction,
+        "local_epochs": local_epochs,
+        "non_iid": non_iid,
+        "non_iid_alpha": non_iid_alpha,
+        "layers_to_drop": layers_to_drop,
+        "batch_size": config.get('batch_size', 0),
+        "learning_rate": config.get('lr', 0.0),
+        "momentum": config.get('momentum', 0.0),
+        "num_rounds": config.get('num_rounds', 0),
+        "device": config.get('device', 'cpu'),
+        "random_seed": config.get('random_seed', 42),
+        "final_accuracy": history['accuracy'][-1] if history['accuracy'] else 0.0,
+        "final_loss": history['loss'][-1] if history['loss'] else 0.0
+    }
 
-    # Set title
-    param_text = (
-        f"Model: {model_name} | Dataset: {dataset_name} | Transport: {Transport} | "
-        f"Clients: {num_clients} | Fraction: {client_fraction:.2f} | Local Epochs: {local_epochs}"
-    )
-    fig.suptitle(param_text, fontsize=14, y=0.98)
+    # 添加通信统计信息
+    if comm_stats:
+        training_info.update({
+            "total_up_communication_mb": comm_stats.get('总上行通信量(MB)', 0.0),
+            "total_robust_communication_mb": comm_stats.get('总鲁棒层通信量(MB)', 0.0),
+            "total_critical_communication_mb": comm_stats.get('总关键层通信量(MB)', 0.0),
+            "total_robust_transmissions": comm_stats.get('总鲁棒层传输次数', 0),
+            "total_critical_transmissions": comm_stats.get('总关键层传输次数', 0)
+        })
 
-    # 在主标题下方添加丢失层信息
-    plt.figtext(0.5, 0.92, dropped_layers_text, ha='center', fontsize=12,
-                bbox={"facecolor": "lightgrey", "alpha": 0.5, "pad": 5})
+        if 'transmission_time' in history and history['transmission_time']:
+            training_info.update({
+                "total_transmission_time_s": float(np.sum(history['transmission_time'])),
+                "avg_transmission_time_s": float(np.mean(history['transmission_time']))
+            })
 
-    plt.subplots_adjust(top=0.85, hspace=0.3)
+    # 保存JSON文件
+    json_path = os.path.join(charts_dir, "training_info.json")
+    import json
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(training_info, f, indent=2, ensure_ascii=False)
+    logger.info(f"Training info saved to: {json_path}")
 
-    # Accuracy plot
-    plt.subplot(2, 2, 1)
+    # 图1: 准确率
+    plt.figure(figsize=(10, 6))
     plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
-    plt.title('Training Accuracy', fontsize=14)
-    plt.xlabel('Rounds', fontsize=12)
-    plt.ylabel('Accuracy (%)', fontsize=12)
+    plt.title(f'Training Accuracy - {model_name} on {dataset_name}', fontsize=16)
+    plt.xlabel('Rounds', fontsize=14)
+    plt.ylabel('Accuracy (%)', fontsize=14)
     plt.ylim(0, 100)
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.text(0.02, 0.98, f'Final: {training_info["final_accuracy"]:.2f}%',
+             transform=plt.gca().transAxes,
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
+             fontsize=12, verticalalignment='top')
+    plt.tight_layout()
+    plt.savefig(os.path.join(charts_dir, "accuracy.png"), dpi=300, bbox_inches='tight')
+    plt.close()
 
-    # Loss plot
-    plt.subplot(2, 2, 2)
+    # 图2: 损失
+    plt.figure(figsize=(10, 6))
     plt.plot(history['round'], history['loss'], 'r-', marker='s', linewidth=2, markersize=4)
-    plt.title('Training Loss', fontsize=14)
-    plt.xlabel('Rounds', fontsize=12)
-    plt.ylabel('Loss', fontsize=12)
+    plt.title(f'Training Loss - {model_name} on {dataset_name}', fontsize=16)
+    plt.xlabel('Rounds', fontsize=14)
+    plt.ylabel('Loss', fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.text(0.02, 0.98, f'Final: {training_info["final_loss"]:.4f}',
+             transform=plt.gca().transAxes,
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.8),
+             fontsize=12, verticalalignment='top')
+    plt.tight_layout()
+    plt.savefig(os.path.join(charts_dir, "loss.png"), dpi=300, bbox_inches='tight')
+    plt.close()
 
-
-    # Communication layers bar chart
+    # 图3: 通信量统计
     if comm_stats and '每轮通信量记录' in comm_stats:
-        plt.subplot(2, 2, 3)
-        
-        # 获取总流量数据
+        plt.figure(figsize=(10, 6))
+
         total_robust = comm_stats.get('总鲁棒层通信量(MB)', 0)
         total_critical = comm_stats.get('总关键层通信量(MB)', 0)
         total_overall = comm_stats.get('总上行通信量(MB)', 0)
-        
-        # 获取传输次数数据
         robust_count = comm_stats.get('总鲁棒层传输次数', 0)
         critical_count = comm_stats.get('总关键层传输次数', 0)
-        
-        # 创建柱状图数据 - 调整顺序：鲁棒层、关键层、总和
+
         categories = ['Robust\nLayers', 'Critical\nLayers', 'Total\nCommunication']
         values = [total_robust, total_critical, total_overall]
-        colors = ['#ff7f0e', '#2ca02c', '#1f77b4']  # 橙色、绿色、蓝色
-        
+        colors = ['#ff7f0e', '#2ca02c', '#1f77b4']
+
         bars = plt.bar(categories, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
-        
-        # 在柱子上添加数值标注
+
         for i, (bar, value) in enumerate(zip(bars, values)):
             height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.01,
-                    f'{value:.2f}MB',
-                    ha='center', va='bottom', fontsize=10, fontweight='bold')
-            
-            # 添加传输次数标注（只对前两个柱子）
-            if i < 2:  # 只对鲁棒层和关键层添加传输次数
+            plt.text(bar.get_x() + bar.get_width() / 2., height + max(values) * 0.01,
+                     f'{value:.2f}MB',
+                     ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+            if i < 2:
                 count = robust_count if i == 0 else critical_count
-                plt.text(bar.get_x() + bar.get_width()/2., height + max(values)*0.06,
-                        f'({count} trans)',
-                        ha='center', va='bottom', fontsize=9, style='italic', color='darkred')
-        
-        plt.title('Total Communication by Layer Type', fontsize=14)
-        plt.ylabel('Communication (MB)', fontsize=12)
+                plt.text(bar.get_x() + bar.get_width() / 2., height + max(values) * 0.06,
+                         f'({count} trans)',
+                         ha='center', va='bottom', fontsize=10, style='italic', color='darkred')
+
+        plt.title(f'Total Communication by Layer Type - {Transport} Transport', fontsize=16)
+        plt.ylabel('Communication (MB)', fontsize=14)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        
-        # 设置Y轴范围，留出更多空间给标注
         plt.ylim(0, max(values) * 1.2)
-        
-        # 添加百分比和传输次数信息
+
         if total_overall > 0:
             robust_percent = (total_robust / total_overall) * 100
             critical_percent = (total_critical / total_overall) * 100
-            plt.text(0.02, 0.98, 
-                    f'Robust: {robust_percent:.1f}% ({robust_count} transmissions)\n'
-                    f'Critical: {critical_percent:.1f}% ({critical_count} transmissions)',
-                    transform=plt.gca().transAxes,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
-                    fontsize=9, verticalalignment='top')
-
-        # 传输时间图
-        if 'transmission_time' in history and history['transmission_time']:
-            plt.subplot(2, 2, 4)
-            plt.plot(history['round'], history['transmission_time'], 'orange', marker='D', linewidth=2, markersize=4)
-            plt.title('Transmission Time per Round (s)', fontsize=14)
-            plt.xlabel('Rounds', fontsize=12)
-            plt.ylabel('Transmission Time (s)', fontsize=12)
-            plt.grid(True, linestyle='--', alpha=0.7)
-
-            # 添加总传输时间标注
-            total_time = np.sum(history['transmission_time'])
-            plt.text(0.05, 0.95, f'Total: {total_time:.4f}s',
+            plt.text(0.02, 0.98,
+                     f'Robust: {robust_percent:.1f}% ({robust_count} transmissions)\n'
+                     f'Critical: {critical_percent:.1f}% ({critical_count} transmissions)',
                      transform=plt.gca().transAxes,
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
-                     fontsize=12, verticalalignment='top')
+                     bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
+                     fontsize=10, verticalalignment='top')
 
-            # # 显示平均传输时间
-            # avg_time = np.mean(history['transmission_time'])
-            # plt.axhline(y=avg_time, color='red', linestyle='--', alpha=0.7, label=f'Average: {avg_time:.4f}s')
-            # plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(charts_dir, "communication.png"), dpi=300, bbox_inches='tight')
+        plt.close()
 
+    # 图4: 传输时间
+    if 'transmission_time' in history and history['transmission_time']:
+        plt.figure(figsize=(10, 6))
+        plt.plot(history['round'], history['transmission_time'], 'orange', marker='D', linewidth=2, markersize=4)
+        plt.title(f'Transmission Time per Round - {Transport} Transport', fontsize=16)
+        plt.xlabel('Rounds', fontsize=14)
+        plt.ylabel('Transmission Time (s)', fontsize=14)
+        plt.grid(True, linestyle='--', alpha=0.7)
 
+        total_time = np.sum(history['transmission_time'])
+        avg_time = np.mean(history['transmission_time'])
+        plt.text(0.02, 0.98, f'Total: {total_time:.4f}s\nAverage: {avg_time:.4f}s',
+                 transform=plt.gca().transAxes,
+                 bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
+                 fontsize=12, verticalalignment='top')
 
-    # Add timestamp watermark
-    fig.text(0.95, 0.01, f'Generated: {timestamp}', fontsize=8,
-             ha='right', va='bottom', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(os.path.join(charts_dir, "transmission_time.png"), dpi=300, bbox_inches='tight')
+        plt.close()
 
-    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    logger.info(f"All charts and training info saved to: {charts_dir}")
 
-    # Save chart
-    chart_path = os.path.join(result_dir, f"training_chart_{timestamp}.png")
-    plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-    logger.info(f"Chart saved to: {chart_path}")
+    # 显示训练完成信息
+    logger.info(f"\nTraining completed - Final accuracy: {training_info['final_accuracy']:.2f}%")
+    if 'total_transmission_time_s' in training_info:
+        logger.info(f"Total transmission time: {training_info['total_transmission_time_s']:.4f}s")
 
-    # Show final performance and transmission time summary
-    if 'transmission_time' in history:
-        total_transmission_time = np.sum(history['transmission_time'])
-        avg_transmission_time = np.mean(history['transmission_time'])
-        logger.info(f"\nTraining completed - Total transmission time: {total_transmission_time:.4f}s")
-        logger.info(f"Average transmission time per round: {avg_transmission_time:.4f}s")
-
-
-    plt.show()

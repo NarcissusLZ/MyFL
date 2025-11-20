@@ -19,22 +19,6 @@ def save_results(config, history, server, timestamp):
     result_dir = config.get('result_dir', 'results')
     os.makedirs(result_dir, exist_ok=True)
 
-    # 保存训练历史
-    # history_path = os.path.join(result_dir, f"history_{timestamp}.npy")
-    # np.save(history_path, history)
-    # logger.info(f"训练历史保存至: {history_path}")
-
-    # # 保存模型
-    # model_path = os.path.join(result_dir, f"global_model_{timestamp}.pth")
-    # torch.save(server.global_model.state_dict(), model_path)
-    # logger.info(f"全局模型保存至: {model_path}")
-    #
-    # # 保存配置文件
-    # config_path = os.path.join(result_dir, f"config_{timestamp}.yaml")
-    # with open(config_path, 'w') as f:
-    #     yaml.dump(config, f)
-    # logger.info(f"配置文件保存至: {config_path}")
-
     # 保存通信统计
     comm_stats = server.get_communication_stats()
     logger.info("\n通信统计:")

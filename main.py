@@ -85,7 +85,9 @@ def main():
     result_dir = config.get('result_dir', 'results')
     os.makedirs(result_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    client_info_path = os.path.join(result_dir, f"client_distribution_{timestamp}.txt")
+    charts_dir = os.path.join(result_dir, f"training_results_{timestamp}")
+    os.makedirs(charts_dir, exist_ok=True)
+    client_info_path = os.path.join(charts_dir, f"client_distribution_{timestamp}.txt")
 
     with open(client_info_path, 'w', encoding='utf-8') as f:
         f.write("客户端数据分布\n")

@@ -78,27 +78,49 @@ def main():
             logger.info(f"客户端 {client_id} 分配到GPU {gpu_id}")
 
     # 打印每个客户端的数据量和类别分布
+    # 打印每个客户端的数据量和类别分布
     logger.info("\n客户端数据分布:")
-    for client_id, data_subset in client_data.items():
-        # 获取该客户端的所有标签
-        labels = [data_subset[i][1] for i in range(len(data_subset))]
 
-        # 统计类别分布
-        unique_labels, counts = np.unique(labels, return_counts=True)
-        label_distribution = dict(zip(unique_labels, counts))
+    # 创建结果目录和文件
+    result_dir = config.get('result_dir', 'results')
+    os.makedirs(result_dir, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    client_info_path = os.path.join(result_dir, f"client_distribution_{timestamp}.txt")
 
-        # 计算类别比例
-        total_samples = len(data_subset)
-        label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
+    with open(client_info_path, 'w', encoding='utf-8') as f:
+        f.write("客户端数据分布\n")
+        f.write("=" * 50 + "\n\n")
 
-        # 获取对应客户端对象以访问距离和丢包率
-        client = clients[client_id]
+        for client_id, data_subset in client_data.items():
+            # 获取该客户端的所有标签
+            labels = [data_subset[i][1] for i in range(len(data_subset))]
 
-        logger.info(f"客户端 {client_id}: {total_samples} 个样本")
-        logger.info(f"  距离: {client.distance}m, 丢包率: {client.packet_loss:.3f}")
-        logger.info(f"  类别分布: {label_distribution}")
-        logger.info(f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}")
+            # 统计类别分布
+            unique_labels, counts = np.unique(labels, return_counts=True)
+            label_distribution = dict(zip(unique_labels, counts))
 
+            # 计算类别比例
+            total_samples = len(data_subset)
+            label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
+
+            # 获取对应客户端对象以访问距离和丢包率
+            client = clients[client_id]
+
+            # 同时输出到日志和文件
+            info_lines = [
+                f"客户端 {client_id}: {total_samples} 个样本",
+                f"  距离: {client.distance}m, 丢包率: {client.packet_loss:.3f}",
+                f"  类别分布: {label_distribution}",
+                f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}"
+            ]
+
+            for line in info_lines:
+                logger.info(line)
+                f.write(line + "\n")
+
+            f.write("\n")
+
+    logger.info(f"\n客户端分布信息已保存至: {client_info_path}")
     logger.info("-" * 30)
 
     logger.info("服务器向所有客户端下发初始模型...")
@@ -190,7 +212,7 @@ def main():
     logger.info(f"最终准确率: {history['accuracy'][-1]:.2f}%")
 
     # 8. 保存结果
-    save_results(config, history, server)
+    save_results(config, history, server, timestamp)
 
     return history
 

@@ -13,14 +13,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-def save_results(config, history, server):
+def save_results(config, history, server, timestamp):
     """保存训练结果和模型"""
     # 创建结果目录
     result_dir = config.get('result_dir', 'results')
     os.makedirs(result_dir, exist_ok=True)
-
-    # 生成时间戳
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
 
     # 保存训练历史
     # history_path = os.path.join(result_dir, f"history_{timestamp}.npy")

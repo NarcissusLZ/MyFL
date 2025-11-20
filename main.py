@@ -110,7 +110,7 @@ def main():
             # 同时输出到日志和文件
             info_lines = [
                 f"客户端 {client_id}: {total_samples} 个样本",
-                f"  距离: {client.distance:.2%}m, 丢包率: {client.packet_loss:.3f}",
+                f"  距离: {client.distance:.2}m, 丢包率: {client.packet_loss:.3f}",
                 f"  类别分布: {label_distribution}",
                 f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}"
             ]

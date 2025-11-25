@@ -4,7 +4,7 @@ import logging
 import time
 import yaml
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # 尽管不绘图，但保留此导入以防np依赖
 
 # 配置日志
 logging.basicConfig(
@@ -12,6 +12,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger()
+
 
 def save_results(config, history, server, timestamp):
     """保存训练结果和模型"""
@@ -24,14 +25,16 @@ def save_results(config, history, server, timestamp):
     logger.info("\n通信统计:")
     # logger.info(f"总下行通信量: {comm_stats['总下行通信量(MB)']:.2f} MB")
     logger.info(f"总上行通信量: {comm_stats['总上行通信量(MB)']:.2f} MB")
-    #logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
+    # logger.info(f"总通信量: {comm_stats['总通信量(MB)']:.2f} MB")
 
     # 将通信量和传输时间添加到历史记录中
     for i, round_data in enumerate(comm_stats['每轮通信量记录']):
         if i < len(history['round']):
             history['up_communication'] = history.get('up_communication', []) + [round_data['up_communication']]
-            history['robust_layer_communication'] = history.get('robust_layer_communication', []) + [round_data['robust_layer_communication']]
-            history['critical_layer_communication'] = history.get('critical_layer_communication', []) + [round_data['critical_layer_communication']]
+            history['robust_layer_communication'] = history.get('robust_layer_communication', []) + [
+                round_data['robust_layer_communication']]
+            history['critical_layer_communication'] = history.get('critical_layer_communication', []) + [
+                round_data['critical_layer_communication']]
 
     # 添加传输时间到历史记录
     history['transmission_time'] = comm_stats['每轮最大传输时间']
@@ -41,14 +44,15 @@ def save_results(config, history, server, timestamp):
     for i in range(len(history['round'])):
         logger.info(f"轮次 {history['round'][i]}: 准确率={history['accuracy'][i]:.2f}%, 损失={history['loss'][i]:.4f}")
 
+    # 调用修改后的函数，仅保存数据，不绘图
     result_plc(history, result_dir, timestamp, config, comm_stats)
 
 
 def result_plc(history, result_dir, timestamp, config, comm_stats=None):
-    """Generate separate charts and save training information as JSON"""
-    logger.info("\nGenerating separate training charts...")
+    """保存训练信息和历史数据到 JSON 文件"""
+    logger.info("\nSaving training data to JSON file...")
 
-    # Extract key parameters from config
+    # 从配置中提取关键参数
     model_name = config.get('model', 'Unspecified')
     dataset_name = config.get('dataset', 'Unspecified')
     Transport = config.get('Transport', 'TCP')
@@ -82,7 +86,17 @@ def result_plc(history, result_dir, timestamp, config, comm_stats=None):
         "device": config.get('device', 'cpu'),
         "random_seed": config.get('random_seed', 42),
         "final_accuracy": history['accuracy'][-1] if history['accuracy'] else 0.0,
-        "final_loss": history['loss'][-1] if history['loss'] else 0.0
+        "final_loss": history['loss'][-1] if history['loss'] else 0.0,
+
+        # 扩展：将所有历史数据列表添加到 JSON 中
+        "rounds": history.get('round', []),
+        "accuracy_history": history.get('accuracy', []),
+        "loss_history": history.get('loss', []),
+        "up_communication_history": history.get('up_communication', []),
+        "robust_layer_communication_history": history.get('robust_layer_communication', []),
+        "critical_layer_communication_history": history.get('critical_layer_communication', []),
+        # 确保 numpy 类型可以被 JSON 序列化
+        "transmission_time_history": [float(t) for t in history.get('transmission_time', [])]
     }
 
     # 添加通信统计信息
@@ -97,6 +111,7 @@ def result_plc(history, result_dir, timestamp, config, comm_stats=None):
 
         if 'transmission_time' in history and history['transmission_time']:
             training_info.update({
+                # 确保 numpy 类型可以被 JSON 序列化
                 "total_transmission_time_s": float(np.sum(history['transmission_time'])),
                 "avg_transmission_time_s": float(np.mean(history['transmission_time']))
             })
@@ -106,110 +121,11 @@ def result_plc(history, result_dir, timestamp, config, comm_stats=None):
     import json
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(training_info, f, indent=2, ensure_ascii=False)
-    logger.info(f"Training info saved to: {json_path}")
+    logger.info(f"Training data saved to: {json_path}")
 
-    # 图1: 准确率
-    plt.figure(figsize=(10, 6))
-    plt.plot(history['round'], history['accuracy'], 'b-', marker='o', linewidth=2, markersize=4)
-    plt.title(f'Training Accuracy - {model_name} on {dataset_name} by {Transport}', fontsize=16)
-    plt.xlabel('Rounds', fontsize=14)
-    plt.ylabel('Accuracy (%)', fontsize=14)
-    plt.ylim(0, 100)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.text(0.02, 0.98, f'Final: {training_info["final_accuracy"]:.2f}%',
-             transform=plt.gca().transAxes,
-             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-             fontsize=12, verticalalignment='top')
-    plt.tight_layout()
-    plt.savefig(os.path.join(charts_dir, "accuracy.png"), dpi=300, bbox_inches='tight')
-    plt.close()
-
-    # 图2: 损失
-    plt.figure(figsize=(10, 6))
-    plt.plot(history['round'], history['loss'], 'r-', marker='s', linewidth=2, markersize=4)
-    plt.title(f'Training Loss - {model_name} on {dataset_name}', fontsize=16)
-    plt.xlabel('Rounds', fontsize=14)
-    plt.ylabel('Loss', fontsize=14)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.text(0.02, 0.98, f'Final: {training_info["final_loss"]:.4f}',
-             transform=plt.gca().transAxes,
-             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.8),
-             fontsize=12, verticalalignment='top')
-    plt.tight_layout()
-    plt.savefig(os.path.join(charts_dir, "loss.png"), dpi=300, bbox_inches='tight')
-    plt.close()
-
-    # 图3: 通信量统计
-    if comm_stats and '每轮通信量记录' in comm_stats:
-        plt.figure(figsize=(10, 6))
-
-        total_robust = comm_stats.get('总鲁棒层通信量(MB)', 0)
-        total_critical = comm_stats.get('总关键层通信量(MB)', 0)
-        total_overall = comm_stats.get('总上行通信量(MB)', 0)
-        robust_count = comm_stats.get('总鲁棒层传输次数', 0)
-        critical_count = comm_stats.get('总关键层传输次数', 0)
-
-        categories = ['Robust\nLayers', 'Critical\nLayers', 'Total\nCommunication']
-        values = [total_robust, total_critical, total_overall]
-        colors = ['#ff7f0e', '#2ca02c', '#1f77b4']
-
-        bars = plt.bar(categories, values, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
-
-        for i, (bar, value) in enumerate(zip(bars, values)):
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width() / 2., height + max(values) * 0.01,
-                     f'{value:.2f}MB',
-                     ha='center', va='bottom', fontsize=12, fontweight='bold')
-
-            if i < 2:
-                count = robust_count if i == 0 else critical_count
-                plt.text(bar.get_x() + bar.get_width() / 2., height + max(values) * 0.06,
-                         f'({count} trans)',
-                         ha='center', va='bottom', fontsize=10, style='italic', color='darkred')
-
-        plt.title(f'Total Communication by Layer Type - {Transport} Transport', fontsize=16)
-        plt.ylabel('Communication (MB)', fontsize=14)
-        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.ylim(0, max(values) * 1.2)
-
-        if total_overall > 0:
-            robust_percent = (total_robust / total_overall) * 100
-            critical_percent = (total_critical / total_overall) * 100
-            plt.text(0.02, 0.98,
-                     f'Robust: {robust_percent:.1f}% ({robust_count} transmissions)\n'
-                     f'Critical: {critical_percent:.1f}% ({critical_count} transmissions)',
-                     transform=plt.gca().transAxes,
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
-                     fontsize=10, verticalalignment='top')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(charts_dir, "communication.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-
-    # 图4: 传输时间
-    if 'transmission_time' in history and history['transmission_time']:
-        plt.figure(figsize=(10, 6))
-        plt.plot(history['round'], history['transmission_time'], 'orange', marker='D', linewidth=2, markersize=4)
-        plt.title(f'Transmission Time per Round - {Transport} Transport', fontsize=16)
-        plt.xlabel('Rounds', fontsize=14)
-        plt.ylabel('Transmission Time (s)', fontsize=14)
-        plt.grid(True, linestyle='--', alpha=0.7)
-
-        total_time = np.sum(history['transmission_time'])
-        avg_time = np.mean(history['transmission_time'])
-        plt.text(0.02, 0.98, f'Total: {total_time:.4f}s\nAverage: {avg_time:.4f}s',
-                 transform=plt.gca().transAxes,
-                 bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
-                 fontsize=12, verticalalignment='top')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(charts_dir, "transmission_time.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-
-    logger.info(f"All charts and training info saved to: {charts_dir}")
+    logger.info(f"All training data saved to: {charts_dir}")
 
     # 显示训练完成信息
     logger.info(f"\nTraining completed - Final accuracy: {training_info['final_accuracy']:.2f}%")
     if 'total_transmission_time_s' in training_info:
         logger.info(f"Total transmission time: {training_info['total_transmission_time_s']:.4f}s")
-

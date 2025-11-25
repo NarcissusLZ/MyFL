@@ -205,27 +205,20 @@ class Server:
         else:
             return client_rng.random() < P_b
 
-    def _simulate_packet_transmission(self, client, client_id, layer_size, layer_name,
-                                      should_retransmit, max_retries):
+    def _simulate_and_get_lost_percentage(self, client, client_id, layer_size, layer_name, should_retransmit,
+                                          max_retries):
         """
-        模拟数据包级别的传输，每个数据包都经历 Gilbert-Elliott 状态转移和丢包判断。
-
-        参数:
-            client: 客户端对象
-            client_id: 客户端ID
-            layer_size: 该层总大小（字节）
-            layer_name: '鲁棒层' 或 '关键层'
-            should_retransmit: 是否允许重传 (布尔值)
-            max_retries: 最大重试次数
+        运行包级模拟，并返回总传输统计和最终未接收包的百分比。
+        修改自原 _simulate_packet_transmission
 
         返回:
             total_time: 传输消耗的总时间
             total_size: 传输消耗的总字节数
             transmission_count: 总传输次数 (数据包数量)
-            is_successful: 该层是否被完整接收 (布尔值)
+            lost_percentage: 最终未成功接收包的百分比
         """
         if layer_size == 0:
-            return 0.0, 0, 0, True
+            return 0.0, 0, 0, 0.0
 
         # 计算数据包数量
         num_packets = max(1, (layer_size + PACKET_SIZE - 1) // PACKET_SIZE)
@@ -233,11 +226,9 @@ class Server:
         # 记录每个数据包的丢包状态 (True: 丢失, False: 成功接收)
         packet_lost_status = [False] * num_packets
         current_lost_count = 0
-
         total_time = 0.0
         total_size = 0
         transmission_count = 0
-
         client_rng = self._get_client_random_generator(client_id)
 
         # 计算单个数据包的传输时间
@@ -280,18 +271,75 @@ class Server:
                     packet_lost_status[i] = False
                     current_lost_count -= 1
 
+            # 打印重传信息
             print(
                 f"  客户端{client_id}的{layer_name}重传 {len(packets_to_retransmit)} 个包 ({retries}/{max_retries})，累计丢失: {current_lost_count}")
 
-        is_successful = (current_lost_count == 0)
+        lost_percentage = current_lost_count / num_packets if num_packets > 0 else 0.0
 
-        if not should_retransmit and current_lost_count > 0:
-            print(f"  客户端{client_id}的{layer_name}不重传，最终丢失 {current_lost_count} 个包，使用全局模型对应层替代")
-        elif not is_successful:
-            print(
-                f"  客户端{client_id}的{layer_name}包级重传失败，最终丢失 {current_lost_count} 个包，使用全局模型对应层替代")
+        if current_lost_count > 0:
+            print(f"  客户端{client_id}的{layer_name}最终丢失 {current_lost_count} 个包 ({lost_percentage * 100:.2f}%)")
+        elif not should_retransmit and current_lost_count > 0:
+            print(f"  客户端{client_id}的{layer_name}不重传，最终丢失 {current_lost_count} 个包，将应用部分替换。")
 
-        return total_time, total_size, transmission_count, is_successful
+        # 注意：这里不再返回 is_successful，而是返回 lost_percentage
+        return total_time, total_size, transmission_count, lost_percentage
+
+    # 新增核心方法：应用部分替换逻辑
+    def _apply_partial_replacement(self, client_id, layers_dict, lost_percentage):
+        """
+        根据丢失的包百分比，对客户端上传的层进行参数替换。
+
+        逻辑：将该层总参数量的 (lost_percentage) 部分替换为全局模型的旧参数。
+        简化假设：丢失的参数块位于张量的末尾部分。
+        """
+        if not layers_dict:
+            return
+
+        if lost_percentage == 0.0:
+            # 如果没有丢失，则完全使用客户端更新
+            for key, param in layers_dict.items():
+                self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+            return
+
+        # 获取全局模型的旧参数，用于替代
+        global_state_dict = self.global_model.state_dict()
+
+        for key, client_param in layers_dict.items():
+
+            # 获取参数张量
+            client_tensor = client_param.to(self.device)
+            global_tensor = global_state_dict[key].to(self.device)
+
+            # 确定替换点 (替换百分比对应的元素数量)
+            num_elements = client_tensor.numel()
+            num_elements_to_replace = int(num_elements * lost_percentage)
+
+            if num_elements_to_replace == 0:
+                # 丢失数量小于一个元素，仍全部接收
+                self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(client_tensor)
+                continue
+
+            # --- 执行替换操作 ---
+
+            # 1. 将张量扁平化 (方便按索引替换)
+            client_flat = client_tensor.flatten()
+            global_flat = global_tensor.flatten()
+
+            # 2. 确定替换范围
+            start_index = num_elements - num_elements_to_replace
+
+            # 3. 用全局模型的旧参数替换客户端更新的对应部分
+            client_flat[start_index:] = global_flat[start_index:].clone()
+
+            # 4. 将扁平化后的张量重塑回原始形状
+            replaced_tensor = client_flat.view_as(client_tensor)
+
+            # 5. 更新到客户端权重字典
+            self.client_weights[client_id]['state_dict'][key] = replaced_tensor
+
+        print(
+            f"  客户端 {client_id} 的层 {list(layers_dict.keys())[0]}... (等) 已应用 {lost_percentage * 100:.2f}% 的旧参数替换。")
 
     def get_ltq_strategy_phase(self, current_round, current_accuracy=None):
         """
@@ -354,7 +402,7 @@ class Server:
                 return 'late'
 
     def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
-        """接收客户端上传的模型更新"""
+        """接收客户端上传的模型更新，应用部分替换逻辑"""
         if model_state_dict is None:
             print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
             return False
@@ -400,44 +448,29 @@ class Server:
         robust_transmission_count = 0
         critical_transmission_count = 0
 
-        # --- 鲁棒层和关键层现在独立调用 _simulate_packet_transmission，并且不预先进行 GE 状态转移判断 ---
-
-        if transport_type == 'TCP':
-            # TCP/LTQ-Early: 所有层都重传
-            r_time, r_size, r_count, is_r_succ = self._simulate_packet_transmission(
-                client, client_id, robust_layer_size_bytes, '鲁棒层', should_retransmit=True, max_retries=16)
-            c_time, c_size, c_count, is_c_succ = self._simulate_packet_transmission(
-                client, client_id, critical_layer_size_bytes, '关键层', should_retransmit=True, max_retries=16)
-
-        elif transport_type == 'UDP':
-            # UDP/LTQ-Late: 所有层都不重传
-            r_time, r_size, r_count, is_r_succ = self._simulate_packet_transmission(
-                client, client_id, robust_layer_size_bytes, '鲁棒层', should_retransmit=False, max_retries=0)
-            c_time, c_size, c_count, is_c_succ = self._simulate_packet_transmission(
-                client, client_id, critical_layer_size_bytes, '关键层', should_retransmit=False, max_retries=0)
-
-        elif transport_type == 'LTQ':
+        # --- 确定传输策略 ---
+        if transport_type == 'LTQ':
             ltq_phase = self.get_ltq_strategy_phase(current_round, current_accuracy)
-            print(f"LTQ模式：当前处于 {ltq_phase} 阶段")
+            should_r_retransmit = (ltq_phase == 'early')
+            should_c_retransmit = (ltq_phase != 'late')
+            max_r_retries = 16 if should_r_retransmit else 0
+            max_c_retries = 16 if should_c_retransmit else 0
+        elif transport_type == 'TCP':
+            should_r_retransmit, should_c_retransmit = True, True
+            max_r_retries, max_c_retries = 16, 16
+        else:  # UDP
+            should_r_retransmit, should_c_retransmit = False, False
+            max_r_retries, max_c_retries = 0, 0
 
-            if ltq_phase == 'early':
-                r_time, r_size, r_count, is_r_succ = self._simulate_packet_transmission(
-                    client, client_id, robust_layer_size_bytes, '鲁棒层', should_retransmit=True, max_retries=16)
-                c_time, c_size, c_count, is_c_succ = self._simulate_packet_transmission(
-                    client, client_id, critical_layer_size_bytes, '关键层', should_retransmit=True, max_retries=16)
+        # --- 运行包级传输模拟并获取丢失百分比 ---
 
-            elif ltq_phase == 'middle':
-                # LTQ-Middle: 鲁棒层不重传，关键层重传
-                r_time, r_size, r_count, is_r_succ = self._simulate_packet_transmission(
-                    client, client_id, robust_layer_size_bytes, '鲁棒层', should_retransmit=False, max_retries=0)
-                c_time, c_size, c_count, is_c_succ = self._simulate_packet_transmission(
-                    client, client_id, critical_layer_size_bytes, '关键层', should_retransmit=True, max_retries=16)
+        # 鲁棒层模拟
+        r_time, r_size, r_count, r_lost_percentage = self._simulate_and_get_lost_percentage(
+            client, client_id, robust_layer_size_bytes, '鲁棒层', should_r_retransmit, max_r_retries)
 
-            else:  # late phase
-                r_time, r_size, r_count, is_r_succ = self._simulate_packet_transmission(
-                    client, client_id, robust_layer_size_bytes, '鲁棒层', should_retransmit=False, max_retries=0)
-                c_time, c_size, c_count, is_c_succ = self._simulate_packet_transmission(
-                    client, client_id, critical_layer_size_bytes, '关键层', should_retransmit=False, max_retries=0)
+        # 关键层模拟
+        c_time, c_size, c_count, c_lost_percentage = self._simulate_and_get_lost_percentage(
+            client, client_id, critical_layer_size_bytes, '关键层', should_c_retransmit, max_c_retries)
 
         # 汇总统计
         total_transmission_time = r_time + c_time
@@ -447,16 +480,15 @@ class Server:
         robust_transmission_count = r_count
         critical_transmission_count = c_count
 
-        # 更新权重 (只有在成功接收所有数据包时才更新)
-        if is_r_succ and robust_layers:
-            for key, param in robust_layers.items():
-                self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+        # --- 应用部分替换逻辑 ---
 
-        if is_c_succ and critical_layers:
-            for key, param in critical_layers.items():
-                self.client_weights[client_id]['state_dict'][key] = copy.deepcopy(param.to(self.device))
+        # 1. 处理鲁棒层
+        self._apply_partial_replacement(client_id, robust_layers, r_lost_percentage)
 
-        # 记录统计信息 (省略了重复的统计更新代码，请确保它们在实际文件中正确)
+        # 2. 处理关键层
+        self._apply_partial_replacement(client_id, critical_layers, c_lost_percentage)
+
+        # 记录统计信息
         self.round_transmission_times[client_id] = total_transmission_time
         self.total_up_communication += actual_received_size
         self.round_up_communication += actual_received_size
@@ -469,7 +501,7 @@ class Server:
         self.round_robust_transmission_count += robust_transmission_count
         self.round_critical_transmission_count += critical_transmission_count
 
-        # 打印输出 (保持原有的打印逻辑)
+        # 打印输出
         print(f"服务器已接收客户端 {client_id} 的更新:")
         print(f"  实际传输数据量: {actual_received_size / 1024 / 1024:.2f} MB")
         print(f"  鲁棒层流量: {robust_layer_received_size / 1024 / 1024:.2f} MB")

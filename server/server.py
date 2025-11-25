@@ -293,6 +293,66 @@ class Server:
 
         return total_time, total_size, transmission_count, is_successful
 
+    def get_ltq_strategy_phase(self, current_round, current_accuracy=None):
+        """
+        确定LTQ当前应该采用的策略阶段
+        返回: 'early', 'middle', 'late'
+        """
+        total_rounds = self.config['num_rounds']
+
+        # 方案1: 纯轮次划分
+        if self.config['ltq_phase_method'] == 'rounds':
+            # 从配置文件读取轮次比例
+            early_ratio = self.config['ltq_early_ratio']
+            middle_ratio = self.config['ltq_middle_ratio']
+            # 计算最小中期和后期轮次
+            min_middle_round = int(total_rounds * early_ratio)
+            min_late_round = int(total_rounds * middle_ratio)
+
+            if current_round <= min_middle_round:
+                return 'early'
+            elif current_round <= min_late_round:
+                return 'middle'
+            else:
+                return 'late'
+
+        # 方案2: 基于精度的自适应划分
+        elif self.config['ltq_phase_method'] == 'accuracy':
+            if current_accuracy is None:
+                return 'early'  # 如果没有精度信息，默认早期
+
+            early_acc_threshold = self.config['ltq_early_acc_threshold']
+            middle_acc_threshold = self.config['ltq_middle_acc_threshold']
+
+            if current_accuracy < early_acc_threshold:
+                return 'early'
+            elif current_accuracy < middle_acc_threshold:
+                return 'middle'
+            else:
+                return 'late'
+
+        # 方案3: 混合策略（轮次 + 精度）
+        else:  # 'hybrid'
+            # 从配置文件读取轮次比例
+            early_ratio = self.config['ltq_early_ratio']
+            middle_ratio = self.config['ltq_middle_ratio']
+            # 计算最小中期和后期轮次
+            min_middle_round = int(total_rounds * early_ratio)
+            min_late_round = int(total_rounds * middle_ratio)
+
+            # 从配置文件读取精度阈值
+            early_acc_threshold = self.config['ltq_early_acc_threshold']
+            middle_acc_threshold = self.config['ltq_middle_acc_threshold']
+
+            if current_round < min_middle_round or (
+                    current_accuracy is not None and current_accuracy < early_acc_threshold):
+                return 'early'
+            elif current_round < min_late_round or (
+                    current_accuracy is not None and current_accuracy < middle_acc_threshold):
+                return 'middle'
+            else:
+                return 'late'
+
     def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
         """接收客户端上传的模型更新"""
         if model_state_dict is None:
@@ -417,26 +477,6 @@ class Server:
         print(f"  总传输时间: {total_transmission_time:.2f}s")
 
         return True
-
-    # 删除了原有的 _handle_tcp_transmission, _handle_udp_transmission, _handle_ltq_*_phase 函数
-    # 因为它们的功能已被新的 receive_local_model 及其调用的 _simulate_packet_transmission 内部逻辑取代
-    # 为了完整性，我把 _handle_ltq_*_phase 的调用逻辑合并到了 receive_local_model 内部
-
-    # 为了避免修改原有的 _handle_* 函数定义导致外部调用出错，我们提供兼容性的占位函数：
-    def _handle_tcp_transmission(*args):
-        raise NotImplementedError("使用新的 _simulate_packet_transmission 逻辑，不应直接调用此函数。")
-
-    def _handle_udp_transmission(*args):
-        raise NotImplementedError("使用新的 _simulate_packet_transmission 逻辑，不应直接调用此函数。")
-
-    def _handle_ltq_early_phase(*args):
-        raise NotImplementedError("使用新的 _simulate_packet_transmission 逻辑，不应直接调用此函数。")
-
-    def _handle_ltq_middle_phase(*args):
-        raise NotImplementedError("使用新的 _simulate_packet_transmission 逻辑，不应直接调用此函数。")
-
-    def _handle_ltq_late_phase(*args):
-        raise NotImplementedError("使用新的 _simulate_packet_transmission 逻辑，不应直接调用此函数。")
 
     def finalize_round_transmission_time(self):
         """完成本轮传输，记录最大传输时间"""

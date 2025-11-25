@@ -193,7 +193,7 @@ class Server:
                 should_drop = False
 
         return should_drop
-    
+
     def get_ltq_strategy_phase(self, current_round, current_accuracy=None):
         """
         确定LTQ当前应该采用的策略阶段
@@ -273,11 +273,11 @@ class Server:
         else:
             # 更新样本数
             self.client_weights[client_id]['num_samples'] = num_samples
-        
+
         # 将模型层分类
         drop_list_layers = {}
         normal_layers = {}
-        
+
         # 先对层进行分类
         for key, param in model_state_dict.items():
             is_in_drop_list = False
@@ -290,7 +290,7 @@ class Server:
                 drop_list_layers[key] = param
             else:
                 normal_layers[key] = param
-        
+
         # 计算两部分的大小
         drop_list_size = sum(param.nelement() * 4 for param in drop_list_layers.values())  # float32 = 4字节
         normal_size = sum(param.nelement() * 4 for param in normal_layers.values())  # float32 = 4字节
@@ -300,15 +300,15 @@ class Server:
         actual_received_size = 0
         robust_layer_received_size = 0  # 鲁棒层实际接收的流量
         critical_layer_received_size = 0  # 关键层实际接收的流量
-        
+
         # 为两部分分别决定是否丢包
         is_drop_list_lost = self._gilbert_elliott_packet_loss(client, ["drop_list_layers"])
         is_normal_lost = self._gilbert_elliott_packet_loss(client, ["normal_layers"])
-        
+
         # 根据传输协议处理丢包和重传
         if transport_type == 'TCP':
             total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size, robust_count, critical_count = self._handle_tcp_transmission(
-                client, client_id, drop_list_layers, normal_layers, 
+                client, client_id, drop_list_layers, normal_layers,
                 drop_list_size, normal_size, is_drop_list_lost, is_normal_lost
             )
 
@@ -321,12 +321,12 @@ class Server:
         elif transport_type == 'LTQ':
             # 确定当前处于哪个阶段
             ltq_phase = self.get_ltq_strategy_phase(current_round, current_accuracy)
-            
+
             if current_accuracy is not None:
                 print(f"LTQ模式：当前处于 {ltq_phase} 阶段（轮次: {current_round}, 精度: {current_accuracy:.2f}%）")
             else:
                 print(f"LTQ模式：当前处于 {ltq_phase} 阶段（轮次: {current_round}, 精度: 未知）")
-            
+
             total_transmission_time, actual_received_size, robust_layer_received_size, critical_layer_received_size, robust_count, critical_count = self._handle_ltq_transmission(
                 client, client_id, drop_list_layers, normal_layers,
                 drop_list_size, normal_size, is_drop_list_lost, is_normal_lost, ltq_phase
@@ -338,13 +338,13 @@ class Server:
         # 更新通信量统计（只计算实际传输的字节数）
         self.total_up_communication += actual_received_size
         self.round_up_communication += actual_received_size
-        
+
         # 更新分层通信量统计
         self.total_robust_communication += robust_layer_received_size
         self.total_critical_communication += critical_layer_received_size
         self.round_robust_communication += robust_layer_received_size
         self.round_critical_communication += critical_layer_received_size
-        
+
         # 更新传输次数统计
         self.total_robust_transmission_count += robust_count
         self.total_critical_transmission_count += critical_count
@@ -359,7 +359,7 @@ class Server:
 
         return True
     
-    def _handle_tcp_transmission(self, client, client_id, drop_list_layers, normal_layers, 
+    def _handle_tcp_transmission(self, client, client_id, drop_list_layers, normal_layers,
                             drop_list_size, normal_size, is_drop_list_lost, is_normal_lost):
         """处理TCP传输：所有层都重传"""
         total_transmission_time = 0.0

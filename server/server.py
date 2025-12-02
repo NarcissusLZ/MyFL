@@ -374,7 +374,7 @@ class Server:
                     break
 
                 if attempts > max_retries:
-                    print(f"客户端 {client.id} 的数据包 {i + 1}/{num_packets} 重传失败")
+                   # print(f"客户端 {client.id} 的数据包 {i + 1}/{num_packets} 重传失败")
                     break
 
         retransmissions = total_transmissions - num_packets

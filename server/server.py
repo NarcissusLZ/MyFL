@@ -325,6 +325,9 @@ class Server:
         critical_bytes_transmitted = 0
         robust_transmissions = 0
         critical_transmissions = 0
+        initial_losses = 0
+        retransmissions = 0
+        total_transmissions = 0
 
         for i, packet_data in enumerate(packets):
             current_packet_size = len(packet_data)
@@ -343,9 +346,10 @@ class Server:
 
             # 模拟传输
             attempts = 0
-            packet_lost = True
+            packet_successfully_sent = False
             while attempts <= max_retries:
                 attempts += 1
+                total_transmissions += 1
                 time_for_packet, _ = client.calculate_transmission_time(current_packet_size)
                 total_transmission_time += time_for_packet
 
@@ -358,8 +362,12 @@ class Server:
 
                 if not self._gilbert_elliott_packet_loss(client):
                     received_packets[i] = packet_data
-                    packet_lost = False
+                    packet_successfully_sent = True
                     break  # 成功接收
+                else:
+                    # 仅在第一次尝试失败时计为初始丢包
+                    if attempts == 1:
+                        initial_losses += 1
 
                 # 如果不需要重传，则直接跳出循环
                 if not should_retransmit_on_loss:
@@ -368,6 +376,8 @@ class Server:
                 if attempts > max_retries:
                     print(f"客户端 {client.id} 的数据包 {i + 1}/{num_packets} 重传失败")
                     break
+
+        retransmissions = total_transmissions - num_packets
 
         # 5. 重组模型
         reconstructed_bytes = bytearray(total_size)
@@ -407,12 +417,9 @@ class Server:
         self.round_critical_transmission_count += critical_transmissions
 
         print(f"服务器已接收客户端 {client.id} 的更新:")
-        print(f"  总数据包: {num_packets}, 永久丢失: {lost_packet_count}")
-        print(f"  总传输流量: {actual_received_size / 1024 / 1024:.3f} MB")
-        print(f"    - 鲁棒层相关流量: {robust_bytes_transmitted / 1024 / 1024:.3f} MB ({robust_transmissions} 次传输)")
         print(
-            f"    - 关键层相关流量: {critical_bytes_transmitted / 1024 / 1024:.3f} MB ({critical_transmissions} 次传输)")
-        print(f"  总传输时间: {total_transmission_time:.2f}s")
+            f"  总数据包: {num_packets}, 初始丢包: {initial_losses}, 重传次数: {retransmissions}, 最终丢失: {lost_packet_count}")
+        print(f"  总传输流量: {actual_received_size / 1024 / 1024:.3f} MB, 总传输时间: {total_transmission_time:.2f}s")
 
         return True
 

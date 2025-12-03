@@ -540,8 +540,8 @@ class Server:
 
         # 日志输出
         print(f"\n动态分层结果 (阈值: {final_scores[num_critical - 1]['score']:.4f}):")
-        print(f"  关键层 ({len(critical_names)}): {', '.join(critical_names[:3])}...")
-        print(f"  鲁棒层 ({len(robust_names)}): {', '.join(robust_names[:3])}...")
+        print(f"  关键层 ({len(critical_names)}): {', '.join(critical_names[:8])}...")
+        print(f"  鲁棒层 ({len(robust_names)}): {', '.join(robust_names[:9])}...")
 
         return critical_names, robust_names
 

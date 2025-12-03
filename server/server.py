@@ -115,7 +115,7 @@ class Server:
         self.critical_ratio = config.get('critical_ratio', 0.5)
         self.grad_beta = config.get('grad_beta', 1.0)
 
-        # === 修改点：初始化指标计算器和缓存列表 ===
+        # === 修复核心：初始化缓存列表 ===
         self.metric_calculator = None
         self.cached_critical_layers = []
         self.cached_robust_layers = []
@@ -150,6 +150,7 @@ class Server:
         if client_id not in self.client_random_generators:
             client_seed = self.random_seed + hash(str(client_id)) % 10000
             self.client_random_generators[client_id] = random.Random(client_seed)
+            print(f"为客户端 {client_id} 创建随机数生成器，种子: {client_seed}")
         return self.client_random_generators[client_id]
 
     def _init_default_layers(self):
@@ -187,7 +188,6 @@ class Server:
         model_name = self.config['model']
         dataset_name = self.config['dataset']
 
-        # 简化导入逻辑，根据你的项目结构调整
         if model_name == 'VGG16':
             from models.vgg16 import CIFAR10_VGG16, CIFAR100_VGG16
             return CIFAR10_VGG16(num_classes=10) if dataset_name == 'cifar10' else CIFAR100_VGG16(num_classes=100)
@@ -210,6 +210,7 @@ class Server:
 
     def broadcast_model(self, selected_clients):
         """向选中的客户端广播最新的全局模型参数"""
+        print("服务器广播全局模型参数")
         global_state_dict = copy.deepcopy(self.global_model.state_dict())
         model_class = self.global_model.__class__
 
@@ -268,7 +269,6 @@ class Server:
         min_middle = int(total_rounds * early_ratio)
         min_late = int(total_rounds * middle_ratio)
 
-        # 简化版逻辑，保留原核心思想
         if method == 'rounds':
             if current_round <= min_middle:
                 return 'early'
@@ -285,9 +285,12 @@ class Server:
             else:
                 return 'late'
         else:  # hybrid
-            if current_round < min_middle:
+            if current_round < min_middle or (
+                    current_accuracy is not None and current_accuracy < self.config.get('ltq_early_acc_threshold', 40)):
                 return 'early'
-            elif current_round < min_late:
+            elif current_round < min_late or (
+                    current_accuracy is not None and current_accuracy < self.config.get('ltq_middle_acc_threshold',
+                                                                                        70)):
                 return 'middle'
             else:
                 return 'late'
@@ -304,7 +307,7 @@ class Server:
     def _get_packet_layer_type_map(self, state_dict, total_size, packet_size=1500):
         """创建从数据包索引到层类型的映射（使用缓存的分层结果）"""
 
-        # === 修改点：直接使用缓存的列表，不实时计算 ===
+        # === 修复核心：直接使用缓存的列表，不实时计算 ===
         critical_layers = self.cached_critical_layers
         robust_layers = self.cached_robust_layers
         # ==========================================
@@ -346,6 +349,7 @@ class Server:
     def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
         """接收客户端上传的模型更新"""
         if model_state_dict is None:
+            print(f"客户端 {client.id} 上传的模型状态字典为空，跳过更新")
             return False
 
         client_id = client.id
@@ -364,42 +368,40 @@ class Server:
 
         received_packets = {}
         total_transmission_time = 0.0
-        robust_bytes = 0
-        critical_bytes = 0
-        robust_trans_count = 0
-        critical_trans_count = 0
+        robust_bytes_transmitted = 0
+        critical_bytes_transmitted = 0
+        robust_transmissions = 0
+        critical_transmissions = 0
         initial_losses = 0
         total_transmissions = 0
 
         for i, packet_data in enumerate(packets):
             current_packet_size = len(packet_data)
-            is_robust = packet_layer_type_map.get(i) == 'robust'
+            is_robust_packet = packet_layer_type_map.get(i) == 'robust'
 
-            should_retransmit = False
+            should_retransmit_on_loss = False
             if transport_type == 'TCP':
-                should_retransmit = True
+                should_retransmit_on_loss = True
             elif transport_type == 'LTQ':
                 ltq_phase = self.get_ltq_strategy_phase(current_round, current_accuracy)
                 if ltq_phase == 'early':
-                    should_retransmit = True
-                elif ltq_phase == 'middle' and not is_robust:
-                    should_retransmit = True
-                # late phase: critical retransmits? (Assume similar to middle or strict config)
-                # 这里保持你的原逻辑，如果middle且critical则重传
+                    should_retransmit_on_loss = True
+                elif ltq_phase == 'middle' and not is_robust_packet:
+                    should_retransmit_on_loss = True
 
             attempts = 0
             while attempts <= max_retries:
                 attempts += 1
                 total_transmissions += 1
-                t_packet, _ = client.calculate_transmission_time(current_packet_size)
-                total_transmission_time += t_packet
+                time_for_packet, _ = client.calculate_transmission_time(current_packet_size)
+                total_transmission_time += time_for_packet
 
-                if is_robust:
-                    robust_bytes += current_packet_size
-                    robust_trans_count += 1
+                if is_robust_packet:
+                    robust_bytes_transmitted += current_packet_size
+                    robust_transmissions += 1
                 else:
-                    critical_bytes += current_packet_size
-                    critical_trans_count += 1
+                    critical_bytes_transmitted += current_packet_size
+                    critical_transmissions += 1
 
                 if not self._gilbert_elliott_packet_loss(client):
                     received_packets[i] = packet_data
@@ -407,12 +409,14 @@ class Server:
                 else:
                     if attempts == 1: initial_losses += 1
 
-                if not should_retransmit: break
+                if not should_retransmit_on_loss: break
                 if attempts > max_retries: break
+
+        retransmissions = total_transmissions - num_packets
 
         # 重组
         reconstructed_bytes = bytearray(total_size)
-        lost_count = 0
+        lost_packet_count = 0
         for i in range(num_packets):
             start = i * packet_size
             end = start + len(packets[i])
@@ -420,7 +424,7 @@ class Server:
                 reconstructed_bytes[start:end] = received_packets[i]
             else:
                 reconstructed_bytes[start:end] = fallback_data_bytes[start:end]
-                lost_count += 1
+                lost_packet_count += 1
 
         buffer = io.BytesIO(reconstructed_bytes)
         try:
@@ -435,18 +439,25 @@ class Server:
         }
 
         # 统计更新
-        actual_size = robust_bytes + critical_bytes
+        actual_received_size = robust_bytes_transmitted + critical_bytes_transmitted
         self.round_transmission_times[client_id] = total_transmission_time
-        self.total_up_communication += actual_size
-        self.round_up_communication += actual_size
-        self.total_robust_communication += robust_bytes
-        self.round_robust_communication += robust_bytes
-        self.total_critical_communication += critical_bytes
-        self.round_critical_communication += critical_bytes
-        self.total_robust_transmission_count += robust_trans_count
-        self.round_robust_transmission_count += robust_trans_count
-        self.total_critical_transmission_count += critical_trans_count
-        self.round_critical_transmission_count += critical_trans_count
+        self.total_up_communication += actual_received_size
+        self.round_up_communication += actual_received_size
+        self.total_robust_communication += robust_bytes_transmitted
+        self.round_robust_communication += robust_bytes_transmitted
+        self.total_critical_communication += critical_bytes_transmitted
+        self.round_critical_communication += critical_bytes_transmitted
+        self.total_robust_transmission_count += robust_transmissions
+        self.round_robust_transmission_count += robust_transmissions
+        self.total_critical_transmission_count += critical_transmissions
+        self.round_critical_transmission_count += critical_transmissions
+
+        # === 恢复输出：详细的接收日志 ===
+        print(f"服务器已接收客户端 {client.id} 的更新:")
+        print(
+            f"  总数据包: {num_packets}, 初始丢包: {initial_losses}, 重传次数: {retransmissions}, 最终丢失: {lost_packet_count}")
+        print(f"  总传输流量: {actual_received_size / 1024 / 1024:.3f} MB, 总传输时间: {total_transmission_time:.2f}s")
+        # ================================
 
         return True
 
@@ -461,6 +472,7 @@ class Server:
         # 获取指标 (Current Global - Prev Global)
         raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
         if not raw_data:
+            print("警告: 无法获取层指标，保持原样")
             return self.cached_critical_layers, self.cached_robust_layers
 
         movements = [x['movement'] for x in raw_data]
@@ -491,12 +503,18 @@ class Server:
         # 切分
         num_critical = max(1, int(len(final_scores) * self.critical_ratio))
 
-        # 更新缓存
-        self.cached_critical_layers = [x['name'] for x in final_scores[:num_critical]]
-        self.cached_robust_layers = [x['name'] for x in final_scores[num_critical:]]
+        critical_names = [x['name'] for x in final_scores[:num_critical]]
+        robust_names = [x['name'] for x in final_scores[num_critical:]]
 
-        print(f"\n[动态分层更新] Threshold Score: {final_scores[num_critical - 1]['score']:.4f}")
-        # print(f"  Top Critical: {self.cached_critical_layers[:3]}")
+        # 更新缓存
+        self.cached_critical_layers = critical_names
+        self.cached_robust_layers = robust_names
+
+        # === 恢复输出：详细的分层信息 ===
+        print(f"\n动态分层结果 (阈值: {final_scores[num_critical - 1]['score']:.4f}):")
+        print(f"  关键层 ({len(critical_names)}): {', '.join(critical_names[:8])}...")
+        print(f"  鲁棒层 ({len(robust_names)}): {', '.join(robust_names[:9])}...")
+        # ==============================
 
         return self.cached_critical_layers, self.cached_robust_layers
 
@@ -504,20 +522,26 @@ class Server:
         """完成本轮传输，记录最大传输时间"""
         if self.round_transmission_times:
             max_time = max(self.round_transmission_times.values())
+            max_client = max(self.round_transmission_times, key=self.round_transmission_times.get)
             self.max_transmission_times.append(max_time)
-            print(f"本轮最大传输时间: {max_time:.2f}s")
+
+            # === 恢复输出：详细的时间统计 ===
+            formatted_times = {k: f"{v:.2f}" for k, v in self.round_transmission_times.items()}
+            print(f"本轮传输完成，最慢客户端: {max_client}，传输时间: {max_time:.2f}s")
+            print(f"所有客户端传输时间: {formatted_times}")
+            # ==============================
         else:
             self.max_transmission_times.append(0.0)
 
     def next_round(self):
         """准备下一轮训练"""
 
-        # === 修改点：1. 先基于本轮聚合后的模型计算新策略 ===
+        # === 修复核心：1. 先基于本轮聚合后的模型计算新策略 ===
         if self.use_dynamic_layer_classification:
             print("正在计算下一轮传输策略...")
             self.classify_layers_dual_factor()
 
-        # === 修改点：2. 再更新基准权重（将当前模型设为W_prev） ===
+        # === 修复核心：2. 再更新基准权重（将当前模型设为W_prev） ===
         if self.use_dynamic_layer_classification and self.metric_calculator:
             self.metric_calculator.update_prev_weights(self.global_model)
             print("已更新基准权重 (W_prev)")

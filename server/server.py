@@ -546,12 +546,14 @@ class Server:
             self.metric_calculator.update_prev_weights(self.global_model)
             print("已更新基准权重 (W_prev)")
 
-        # 记录本轮通信量
+            # 记录本轮通信量
         self.communication_history.append({
             'round': len(self.communication_history) + 1,
             'up_communication': self.round_up_communication,
-            'robust_communication': self.round_robust_communication,
-            'critical_communication': self.round_critical_communication,
+            # === 修改下面两行键名 ===
+            'robust_layer_communication': self.round_robust_communication,  # 改为 robust_layer_communication
+            'critical_layer_communication': self.round_critical_communication,  # 改为 critical_layer_communication
+            # ======================
             'robust_transmissions': self.round_robust_transmission_count,
             'critical_transmissions': self.round_critical_transmission_count
         })

@@ -490,15 +490,32 @@ class Server:
 
     def classify_layers_dual_factor(self):
         """基于双因子动态分层（联邦学习版）"""
-        if not self.use_dynamic_layer_classification:
-            return [], []
+        if not self.use_dynamic_layer_classification or self.metric_calculator is None:
+            # 回退到配置文件方式
+            layers_to_drop = self.config.get('layers_to_drop', [])
+            all_layers = [name for name, _ in self.global_model.named_parameters() if 'weight' in name]
+
+            robust_layers = [
+                layer for layer in all_layers
+                if any(pattern in layer for pattern in layers_to_drop)
+            ]
+            critical_layers = [
+                layer for layer in all_layers
+                if layer not in robust_layers
+            ]
+
+            print(f"使用配置文件固定分层: 鲁棒层={len(robust_layers)}, 关键层={len(critical_layers)}")
+            return critical_layers, robust_layers
 
         # 获取指标（包含近似梯度）
         raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
+        if not raw_data:
+            print("警告: 无法获取层指标，回退到配置文件方式")
+            return self.classify_layers_dual_factor()  # 递归调用回退逻辑
 
         # 归一化
         movements = [x['movement'] for x in raw_data]
-        grads = [x['grad'] for x in raw_data]  # ← 这里是EMA近似值
+        grads = [x['grad'] for x in raw_data]
 
         max_mov = max(movements) if movements and max(movements) > 0 else 1.0
         max_grad = max(grads) if grads and max(grads) > 0 else 1.0
@@ -507,7 +524,6 @@ class Server:
         for item in raw_data:
             norm_mov = item['movement'] / max_mov
             norm_grad = item['grad'] / max_grad
-
             combined_score = norm_mov + self.grad_beta * norm_grad
 
             final_scores.append({
@@ -521,6 +537,11 @@ class Server:
 
         critical_names = [x['name'] for x in final_scores[:num_critical]]
         robust_names = [x['name'] for x in final_scores[num_critical:]]
+
+        # 日志输出
+        print(f"\n动态分层结果 (阈值: {final_scores[num_critical - 1]['score']:.4f}):")
+        print(f"  关键层 ({len(critical_names)}): {', '.join(critical_names[:3])}...")
+        print(f"  鲁棒层 ({len(robust_names)}): {', '.join(robust_names[:3])}...")
 
         return critical_names, robust_names
 

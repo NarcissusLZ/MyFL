@@ -8,6 +8,63 @@ import io
 import math
 
 
+class LayerMetricCalculator:
+    """
+    联邦学习版：用权重变化统计替代梯度敏感度
+    """
+
+    def __init__(self, model):
+        print("初始化 LayerMetricCalculator: 正在备份初始权重...")
+        self.prev_weights = {}
+        self.movement_ema = {}  # 指数移动平均（用于平滑变化量）
+
+        for name, param in model.named_parameters():
+            if 'weight' in name and param.dim() > 1:
+                self.prev_weights[name] = param.data.clone().detach().cpu()
+                self.movement_ema[name] = 0.0
+
+    def update_prev_weights(self, model):
+        """更新上一轮权重记录"""
+        for name, param in model.named_parameters():
+            if name in self.prev_weights:
+                self.prev_weights[name] = param.data.clone().detach().cpu()
+
+    def get_dual_metrics(self, model):
+        """
+        联邦学习版本：用权重变化统计替代梯度
+
+        关键修改：
+        - 因子1: 当前轮权重变化 (W_t - W_{t-1})
+        - 因子2: 历史变化的EMA（替代梯度敏感度）
+        """
+        metrics_data = []
+
+        for name, param in model.named_parameters():
+            if 'weight' not in name or param.dim() <= 1:
+                continue
+
+            # 因子1: 当前轮次权重变化
+            movement = 0.0
+            if name in self.prev_weights:
+                prev_w = self.prev_weights[name].to(param.device)
+                movement = torch.norm(param.data - prev_w, p=2).item()
+
+            # 因子2: 用EMA平滑的权重变化替代梯度
+            # 物理意义：持续变化大 → 对损失敏感 → 类似高梯度
+            self.movement_ema[name] = (
+                    0.8 * self.movement_ema[name] + 0.2 * movement
+            )
+            grad_approx = self.movement_ema[name]
+
+            metrics_data.append({
+                'name': name,
+                'movement': movement,  # 当前变化
+                'grad': grad_approx  # ← 用平滑变化量替代梯度
+            })
+
+        return metrics_data
+
+
 class Server:
     def __init__(self, config, test_dataset):
         self.config = config
@@ -59,6 +116,18 @@ class Server:
         self.gilbert_elliott_states = {}  # 每个客户端的网络状态
         self.client_random_generators = {}  # 每个客户端的独立随机数生成器 - 在这里初始化
         self._init_gilbert_elliott_params()
+
+        # 添加动态分层配置参数
+        self.use_dynamic_layer_classification = config.get('use_dynamic_layer_classification', False)
+        self.critical_ratio = config.get('critical_ratio', 0.5)
+        self.grad_beta = config.get('grad_beta', 1.0)
+
+        # 初始化指标计算器
+        self.use_dynamic_layer_classification = config.get('use_dynamic_layer_classification', False)
+        if self.use_dynamic_layer_classification:
+            self.metric_calculator = LayerMetricCalculator(self.global_model)
+        else:
+            self.metric_calculator = None
 
         print(f"服务器初始化完成, 设备: {self.device}")
 
@@ -252,26 +321,24 @@ class Server:
         return packets, data_bytes
 
     def _get_packet_layer_type_map(self, state_dict, total_size, packet_size=1500):
-        """创建从数据包索引到层类型（'robust'或'critical'）的映射"""
-        layers_to_drop = self.config.get('layers_to_drop', [])
+        """创建从数据包索引到层类型的映射（使用动态分层）"""
+        # 获取动态分层结果
+        critical_layers, robust_layers = self.classify_layers_dual_factor()
+
         packet_map = {}
         current_pos = 0
 
-        # 创建一个临时的BytesIO来测量每个参数的位置
         buffer = io.BytesIO()
         torch.save(state_dict, buffer)
-
-        # 重新加载以获取有序字典
         buffer.seek(0)
         ordered_state_dict = torch.load(buffer)
 
         temp_buffer = io.BytesIO()
         for key, param in ordered_state_dict.items():
-            # 确定层类型
-            is_robust = any(layer_pattern in key for layer_pattern in layers_to_drop)
+            # 判断层类型
+            is_robust = key in robust_layers
             layer_type = 'robust' if is_robust else 'critical'
 
-            # 测量序列化后的大小
             torch.save(param, temp_buffer)
             param_size = temp_buffer.tell()
             temp_buffer.seek(0)
@@ -285,11 +352,9 @@ class Server:
 
             current_pos += param_size
 
-        # 确保所有包都有映射
         num_packets = math.ceil(total_size / packet_size)
         for i in range(num_packets):
             if i not in packet_map:
-                # 对于可能存在的开销/元数据包，默认设为critical
                 packet_map[i] = 'critical'
 
         return packet_map
@@ -423,6 +488,42 @@ class Server:
 
         return True
 
+    def classify_layers_dual_factor(self):
+        """基于双因子动态分层（联邦学习版）"""
+        if not self.use_dynamic_layer_classification:
+            return [], []
+
+        # 获取指标（包含近似梯度）
+        raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
+
+        # 归一化
+        movements = [x['movement'] for x in raw_data]
+        grads = [x['grad'] for x in raw_data]  # ← 这里是EMA近似值
+
+        max_mov = max(movements) if movements and max(movements) > 0 else 1.0
+        max_grad = max(grads) if grads and max(grads) > 0 else 1.0
+
+        final_scores = []
+        for item in raw_data:
+            norm_mov = item['movement'] / max_mov
+            norm_grad = item['grad'] / max_grad
+
+            combined_score = norm_mov + self.grad_beta * norm_grad
+
+            final_scores.append({
+                'name': item['name'],
+                'score': combined_score
+            })
+
+        # 排序和切分
+        final_scores.sort(key=lambda x: x['score'], reverse=True)
+        num_critical = max(1, int(len(final_scores) * self.critical_ratio))
+
+        critical_names = [x['name'] for x in final_scores[:num_critical]]
+        robust_names = [x['name'] for x in final_scores[num_critical:]]
+
+        return critical_names, robust_names
+
     def finalize_round_transmission_time(self):
         """完成本轮传输，记录最大传输时间"""
         if self.round_transmission_times:
@@ -439,20 +540,28 @@ class Server:
 
     def next_round(self):
         """准备下一轮训练"""
+        # 更新权重记录（用于下一轮计算变化量）
+        if self.use_dynamic_layer_classification and self.metric_calculator:
+            self.metric_calculator.update_prev_weights(self.global_model)
+            print("已更新权重记录用于下一轮计算")
+
         # 记录本轮通信量
         self.communication_history.append({
-            'up_communication': self.round_up_communication / (1024 * 1024),  # MB
-            'robust_layer_communication': self.round_robust_communication / (1024 * 1024),  # MB
-            'critical_layer_communication': self.round_critical_communication / (1024 * 1024),  # MB
+            'round': len(self.communication_history) + 1,
+            'up_communication': self.round_up_communication,
+            'robust_communication': self.round_robust_communication,
+            'critical_communication': self.round_critical_communication,
+            'robust_transmissions': self.round_robust_transmission_count,
+            'critical_transmissions': self.round_critical_transmission_count
         })
 
-        # 重置本轮统计
+        # 重置统计
         self.round_up_communication = 0
         self.round_robust_communication = 0
         self.round_critical_communication = 0
         self.round_robust_transmission_count = 0
         self.round_critical_transmission_count = 0
-        self.round_transmission_times = {}  # 清空本轮传输时间记录
+        self.round_transmission_times = {}
         self.client_weights = {}
 
     def get_communication_stats(self):

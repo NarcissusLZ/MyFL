@@ -4,7 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 def fed_avg(global_model, client_weights):
     """
     使用加权平均聚合客户端模型更新

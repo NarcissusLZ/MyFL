@@ -354,7 +354,14 @@ class Server:
 
         client_id = client.id
         transport_type = self.config.get('Transport', 'TCP')
-        packet_size = 1500
+        # === 根据传输协议动态设置包大小 ===
+        if transport_type == 'UDP':
+            packet_size = 1500
+        elif transport_type == 'TCP':
+            packet_size = 800
+        else:  # LTQ 使用两种包大小
+            packet_size = 1500  # 默认值，后续按层类型调整
+
         max_retries = 16
 
         packets, original_data_bytes = self._serialize_and_packetize(model_state_dict, packet_size)

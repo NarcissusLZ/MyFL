@@ -200,7 +200,8 @@ def main():
         history['loss'].append(test_results['loss'])
 
         # h. 进入下一轮
-        server.next_round()
+        server.next_round(current_round=round, total_rounds=config['num_rounds'])
+
 
         round_time = time.time() - round_start
         logger.info(f"本轮完成，耗时: {round_time:.2f}秒")

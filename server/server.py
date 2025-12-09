@@ -161,21 +161,6 @@ class Server:
         self.cached_robust_layers = all_layers[split_idx:]
         print(f"已初始化默认分层: 关键层 {len(self.cached_critical_layers)}, 鲁棒层 {len(self.cached_robust_layers)}")
 
-    def _init_fixed_layers(self):
-        """从配置文件初始化固定分层"""
-        layers_to_drop = self.config.get('layers_to_drop', [])
-        all_layers = [name for name, _ in self.global_model.named_parameters() if 'weight' in name]
-
-        self.cached_robust_layers = [
-            layer for layer in all_layers
-            if any(pattern in layer for pattern in layers_to_drop)
-        ]
-        self.cached_critical_layers = [
-            layer for layer in all_layers
-            if layer not in self.cached_robust_layers
-        ]
-        print(f"使用固定配置分层: 关键层 {len(self.cached_critical_layers)}, 鲁棒层 {len(self.cached_robust_layers)}")
-
     def get_model_size(self):
         """计算模型参数大小（字节）"""
         size_bytes = 0
@@ -259,42 +244,6 @@ class Server:
             self.gilbert_elliott_states[client_id] = 0
             return False
 
-    def get_ltq_strategy_phase(self, current_round, current_accuracy=None):
-        """确定LTQ当前应该采用的策略阶段"""
-        total_rounds = self.config['num_rounds']
-        method = self.config.get('ltq_phase_method', 'rounds')
-
-        early_ratio = self.config.get('ltq_early_ratio', 0.2)
-        middle_ratio = self.config.get('ltq_middle_ratio', 0.6)
-        min_middle = int(total_rounds * early_ratio)
-        min_late = int(total_rounds * middle_ratio)
-
-        if method == 'rounds':
-            if current_round <= min_middle:
-                return 'early'
-            elif current_round <= min_late:
-                return 'middle'
-            else:
-                return 'late'
-        elif method == 'accuracy':
-            if current_accuracy is None: return 'early'
-            if current_accuracy < self.config.get('ltq_early_acc_threshold', 40):
-                return 'early'
-            elif current_accuracy < self.config.get('ltq_middle_acc_threshold', 70):
-                return 'middle'
-            else:
-                return 'late'
-        else:  # hybrid
-            if current_round < min_middle or (
-                    current_accuracy is not None and current_accuracy < self.config.get('ltq_early_acc_threshold', 40)):
-                return 'early'
-            elif current_round < min_late or (
-                    current_accuracy is not None and current_accuracy < self.config.get('ltq_middle_acc_threshold',
-                                                                                        70)):
-                return 'middle'
-            else:
-                return 'late'
-
     def _serialize_and_packetize(self, state_dict, packet_size=1500):
         buffer = io.BytesIO()
         torch.save(state_dict, buffer)
@@ -303,6 +252,78 @@ class Server:
         for i in range(0, len(data_bytes), packet_size):
             packets.append(data_bytes[i:i + packet_size])
         return packets, data_bytes
+
+    def get_progressive_critical_ratio(self, current_round, total_rounds):
+        """根据训练进度计算关键层比例
+
+        前10%轮次: 100% 关键层
+        10-20%轮次: 90% 关键层
+        20-30%轮次: 80% 关键层
+        ...以此类推，最低到配置的 critical_ratio
+        """
+        progress = current_round / total_rounds
+
+        # 计算当前阶段 (0-9)
+        stage = int(progress * 10)
+
+        # 每个阶段减少10%关键层，从100%开始
+        progressive_ratio = max(1.0 - stage * 0.1, self.critical_ratio)
+
+        return progressive_ratio
+
+    def classify_layers_dual_factor(self, current_round=None, total_rounds=None):
+        """
+        基于双因子动态分层（计算并更新缓存）
+        新增：渐进式关键层比例
+        """
+        if not self.use_dynamic_layer_classification or self.metric_calculator is None:
+            return self.cached_critical_layers, self.cached_robust_layers
+
+        # === 计算渐进式关键层比例 ===
+        if current_round is not None and total_rounds is not None:
+            effective_ratio = self.get_progressive_critical_ratio(current_round, total_rounds)
+            print(f"轮次 {current_round}/{total_rounds}: 关键层比例 = {effective_ratio * 100:.0f}%")
+        else:
+            effective_ratio = self.critical_ratio
+        # ===========================
+
+        raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
+        if not raw_data:
+            print("警告: 无法获取层指标，保持原样")
+            return self.cached_critical_layers, self.cached_robust_layers
+
+        movements = [x['movement'] for x in raw_data]
+        grads = [x['grad'] for x in raw_data]
+
+        max_mov = max(movements) if movements else 1.0
+        max_grad = max(grads) if grads else 1.0
+
+        if max_mov == 0 and max_grad == 0:
+            print("注意：模型权重未变化，保持上一轮分层策略。")
+            return self.cached_critical_layers, self.cached_robust_layers
+
+        final_scores = []
+        for item in raw_data:
+            norm_mov = item['movement'] / max_mov if max_mov > 0 else 0
+            norm_grad = item['grad'] / max_grad if max_grad > 0 else 0
+            combined_score = norm_mov + self.grad_beta * norm_grad
+            final_scores.append({'name': item['name'], 'score': combined_score})
+
+        final_scores.sort(key=lambda x: x['score'], reverse=True)
+
+        # === 使用渐进式比例 ===
+        num_critical = max(1, int(len(final_scores) * effective_ratio))
+        # ====================
+
+        critical_names = [x['name'] for x in final_scores[:num_critical]]
+        robust_names = [x['name'] for x in final_scores[num_critical:]]
+
+        self.cached_critical_layers = critical_names
+        self.cached_robust_layers = robust_names
+
+        print(f"动态分层结果: 关键层 {len(critical_names)}, 鲁棒层 {len(robust_names)}")
+
+        return self.cached_critical_layers, self.cached_robust_layers
 
     def _get_packet_layer_type_map(self, state_dict, total_size, packet_size=1500):
         """创建从数据包索引到层类型的映射（使用缓存的分层结果）"""
@@ -354,13 +375,8 @@ class Server:
 
         client_id = client.id
         transport_type = self.config.get('Transport', 'TCP')
-        # === 根据传输协议动态设置包大小 ===
-        if transport_type == 'UDP':
-            packet_size = 1500
-        elif transport_type == 'TCP':
-            packet_size = 800
-        else:  # LTQ 使用两种包大小
-            packet_size = 1500  # 默认值，后续按层类型调整
+
+        packet_size = 1500
 
         max_retries = 16
 
@@ -386,15 +402,17 @@ class Server:
             current_packet_size = len(packet_data)
             is_robust_packet = packet_layer_type_map.get(i) == 'robust'
 
-            should_retransmit_on_loss = False
+            # === 简化后的重传逻辑 ===
             if transport_type == 'TCP':
                 should_retransmit_on_loss = True
+            elif transport_type == 'UDP':
+                should_retransmit_on_loss = False
             elif transport_type == 'LTQ':
-                ltq_phase = self.get_ltq_strategy_phase(current_round, current_accuracy)
-                if ltq_phase == 'early':
-                    should_retransmit_on_loss = True
-                elif ltq_phase == 'middle' and not is_robust_packet:
-                    should_retransmit_on_loss = True
+                # 关键层用TCP策略（重传），鲁棒层用UDP策略（不重传）
+                should_retransmit_on_loss = not is_robust_packet
+            else:
+                should_retransmit_on_loss = False
+            # ========================
 
             attempts = 0
             while attempts <= max_retries:
@@ -468,63 +486,6 @@ class Server:
 
         return True
 
-    def classify_layers_dual_factor(self):
-        """
-        基于双因子动态分层（计算并更新缓存）
-        调用时机：每轮聚合完成后，prepare next round 之前
-        """
-        if not self.use_dynamic_layer_classification or self.metric_calculator is None:
-            return self.cached_critical_layers, self.cached_robust_layers
-
-        # 获取指标 (Current Global - Prev Global)
-        raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
-        if not raw_data:
-            print("警告: 无法获取层指标，保持原样")
-            return self.cached_critical_layers, self.cached_robust_layers
-
-        movements = [x['movement'] for x in raw_data]
-        grads = [x['grad'] for x in raw_data]
-
-        max_mov = max(movements) if movements else 1.0
-        max_grad = max(grads) if grads else 1.0
-
-        # === 核心保护：如果模型没有变化，跳过更新 ===
-        if max_mov == 0 and max_grad == 0:
-            print("注意：模型权重未变化（Score=0），保持上一轮分层策略。")
-            return self.cached_critical_layers, self.cached_robust_layers
-
-        final_scores = []
-        for item in raw_data:
-            norm_mov = item['movement'] / max_mov if max_mov > 0 else 0
-            norm_grad = item['grad'] / max_grad if max_grad > 0 else 0
-            combined_score = norm_mov + self.grad_beta * norm_grad
-
-            final_scores.append({
-                'name': item['name'],
-                'score': combined_score
-            })
-
-        # 排序
-        final_scores.sort(key=lambda x: x['score'], reverse=True)
-
-        # 切分
-        num_critical = max(1, int(len(final_scores) * self.critical_ratio))
-
-        critical_names = [x['name'] for x in final_scores[:num_critical]]
-        robust_names = [x['name'] for x in final_scores[num_critical:]]
-
-        # 更新缓存
-        self.cached_critical_layers = critical_names
-        self.cached_robust_layers = robust_names
-
-        # === 恢复输出：详细的分层信息 ===
-        print(f"\n动态分层结果 (阈值: {final_scores[num_critical - 1]['score']:.4f}):")
-        print(f"  关键层 ({len(critical_names)}): {', '.join(critical_names[:8])}...")
-        print(f"  鲁棒层 ({len(robust_names)}): {', '.join(robust_names[:9])}...")
-        # ==============================
-
-        return self.cached_critical_layers, self.cached_robust_layers
-
     def finalize_round_transmission_time(self):
         """完成本轮传输，记录最大传输时间"""
         if self.round_transmission_times:
@@ -540,18 +501,14 @@ class Server:
         else:
             self.max_transmission_times.append(0.0)
 
-    def next_round(self):
+    def next_round(self, current_round=None, total_rounds=None):
         """准备下一轮训练"""
-
-        # === 修复核心：1. 先基于本轮聚合后的模型计算新策略 ===
         if self.use_dynamic_layer_classification:
             print("正在计算下一轮传输策略...")
-            self.classify_layers_dual_factor()
+            self.classify_layers_dual_factor(current_round, total_rounds)
 
-        # === 修复核心：2. 再更新基准权重（将当前模型设为W_prev） ===
         if self.use_dynamic_layer_classification and self.metric_calculator:
             self.metric_calculator.update_prev_weights(self.global_model)
-            print("已更新基准权重 (W_prev)")
 
         # 记录本轮通信量
         self.communication_history.append({

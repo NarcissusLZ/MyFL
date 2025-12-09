@@ -159,7 +159,17 @@ class Server:
         split_idx = int(len(all_layers) * self.critical_ratio)
         self.cached_critical_layers = all_layers[:split_idx]
         self.cached_robust_layers = all_layers[split_idx:]
-        print(f"已初始化默认分层: 关键层 {len(self.cached_critical_layers)}, 鲁棒层 {len(self.cached_robust_layers)}")
+
+        # === 输出完整层名列表 ===
+        print(f"\n{'='*60}")
+        print(f"初始分层 (第0轮): 关键层 {len(self.cached_critical_layers)} 个, 鲁棒层 {len(self.cached_robust_layers)} 个")
+        print(f"\n【关键层 (TCP传输)】:")
+        for i, name in enumerate(self.cached_critical_layers):
+            print(f"  {i+1:2d}. {name}")
+        print(f"\n【鲁棒层 (UDP传输)】:")
+        for i, name in enumerate(self.cached_robust_layers):
+            print(f"  {i+1:2d}. {name}")
+        print(f"{'='*60}\n")
 
     def get_model_size(self):
         """计算模型参数大小（字节）"""
@@ -321,7 +331,19 @@ class Server:
         self.cached_critical_layers = critical_names
         self.cached_robust_layers = robust_names
 
-        print(f"动态分层结果: 关键层 {len(critical_names)}, 鲁棒层 {len(robust_names)}")
+        # === 输出完整层名列表 ===
+        print(f"\n{'=' * 60}")
+        print(f"动态分层结果: 关键层 {len(critical_names)} 个, 鲁棒层 {len(robust_names)} 个")
+        print(f"\n【关键层 (TCP传输)】:")
+        for i, name in enumerate(critical_names):
+            score = next(x['score'] for x in final_scores if x['name'] == name)
+            print(f"  {i + 1:2d}. {name} (score: {score:.4f})")
+        print(f"\n【鲁棒层 (UDP传输)】:")
+        for i, name in enumerate(robust_names):
+            score = next(x['score'] for x in final_scores if x['name'] == name)
+            print(f"  {i + 1:2d}. {name} (score: {score:.4f})")
+        print(f"{'=' * 60}\n")
+        # ========================
 
         return self.cached_critical_layers, self.cached_robust_layers
 

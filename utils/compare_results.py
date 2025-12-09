@@ -18,16 +18,11 @@ RESULTS_ROOT_DIR = 'results'
 def generate_label(path_suffix, index):
     """
     根据路径后缀生成一个可读的图例标签。
-    您可以根据需要修改这个逻辑。
-    例如：将 '20251125_150000' 转换为 'Exp 1 (15:00)'
+    新的逻辑：直接使用文件夹名称的后缀作为标签。
+    例如：'training_results_tcp' 会生成标签 'TCP'。
     """
-    # 尝试从时间戳中提取时间部分作为辅助信息
-    try:
-        time_part = path_suffix.split('_')[-1]  # 提取 '150000'
-        formatted_time = f"{time_part[:2]}:{time_part[2:4]}"
-        return f"Exp {index + 1} ({formatted_time})"
-    except:
-        return f"Exp {index + 1} ({path_suffix})"
+    # 直接返回路径后缀，并转换为大写以美化图例
+    return path_suffix.upper()
 
 
 def load_all_experiment_data():

@@ -154,22 +154,24 @@ class Server:
         return self.client_random_generators[client_id]
 
     def _init_default_layers(self):
-        """初始化默认分层（仅用于第0轮，按顺序切分）"""
+        """初始化默认分层（第0轮，100%关键层）"""
         all_layers = [name for name, _ in self.global_model.named_parameters() if 'weight' in name]
-        split_idx = int(len(all_layers) * self.critical_ratio)
-        self.cached_critical_layers = all_layers[:split_idx]
-        self.cached_robust_layers = all_layers[split_idx:]
+
+        # 第0轮使用100%关键层
+        self.cached_critical_layers = all_layers
+        self.cached_robust_layers = []
 
         # === 输出完整层名列表 ===
-        print(f"\n{'='*60}")
-        print(f"初始分层 (第0轮): 关键层 {len(self.cached_critical_layers)} 个, 鲁棒层 {len(self.cached_robust_layers)} 个")
+        print(f"\n{'=' * 60}")
+        print(
+            f"初始分层 (第0轮): 关键层 {len(self.cached_critical_layers)} 个, 鲁棒层 {len(self.cached_robust_layers)} 个")
+        print(f"关键层比例 = 100%")
         print(f"\n【关键层 (TCP传输)】:")
         for i, name in enumerate(self.cached_critical_layers):
-            print(f"  {i+1:2d}. {name}")
+            print(f"  {i + 1:2d}. {name}")
         print(f"\n【鲁棒层 (UDP传输)】:")
-        for i, name in enumerate(self.cached_robust_layers):
-            print(f"  {i+1:2d}. {name}")
-        print(f"{'='*60}\n")
+        print(f"  (无)")
+        print(f"{'=' * 60}\n")
 
     def get_model_size(self):
         """计算模型参数大小（字节）"""

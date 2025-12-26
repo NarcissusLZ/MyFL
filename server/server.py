@@ -402,7 +402,7 @@ class Server:
 
         packet_size = 1500
 
-        max_retries = 16
+        max_retries = 40
 
         packets, original_data_bytes = self._serialize_and_packetize(model_state_dict, packet_size)
         num_packets = len(packets)

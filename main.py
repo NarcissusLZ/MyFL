@@ -1,4 +1,9 @@
 import logging
+import yaml
+import torch
+import os
+import time
+import numpy as np
 
 # 配置日志
 logging.basicConfig(
@@ -15,11 +20,13 @@ from data.split import split_dataset_to_clients
 from utils.result import *
 from server.fed_avg import fed_avg
 
+
 def load_config(config_path='config.yaml'):
     """加载配置文件"""
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     return config
+
 
 def main():
     # 1. 加载配置
@@ -77,7 +84,6 @@ def main():
         if gpu_id is not None:
             logger.info(f"客户端 {client_id} 分配到GPU {gpu_id}")
 
-    # 打印每个客户端的数据量和类别分布
     # 打印每个客户端的数据量和类别分布
     logger.info("\n客户端数据分布:")
 
@@ -141,7 +147,7 @@ def main():
 
     for round in range(config['num_rounds']):
         round_start = time.time()
-        logger.info("\n"+'='*20+f"训练轮次 {round + 1}/{config['num_rounds']}"+'='*20)
+        logger.info("\n" + '=' * 20 + f"训练轮次 {round + 1}/{config['num_rounds']}" + '=' * 20)
 
         # a. 服务器选择客户端
         selected_clients = server.select_clients(
@@ -169,16 +175,17 @@ def main():
         current_accuracy = None
         if round > 0:  # 第一轮没有历史精度
             current_accuracy = history['accuracy'][-1]  # 使用上一轮的精度
-        
+
         for client_id, update in client_updates.items():
+            # 注意：receive_local_model 的参数可以保持不变，或者根据需要调整
             success = server.receive_local_model(
                 update['client'],  # 传递客户端对象而非ID
                 update['model_state'],
                 update['num_samples'],
-                current_round=round + 1,  # 添加当前轮次
-                current_accuracy=current_accuracy  # 添加当前精度
+                current_round=round + 1,  # 这些参数仅用于记录日志，不影响核心逻辑
+                current_accuracy=current_accuracy
             )
-            
+
             if not success:
                 logger.warning(f"客户端 {client_id} 的模型更新接收失败")
 
@@ -199,9 +206,10 @@ def main():
         history['accuracy'].append(test_results['accuracy'])
         history['loss'].append(test_results['loss'])
 
-        # h. 进入下一轮
-        server.next_round(current_round=round, total_rounds=config['num_rounds'])
-
+        # === 核心修改: h. 进入下一轮 ===
+        # 根据开题报告 2.3.2 逻辑，下一轮的分层比例基于当前 Loss 的变化率
+        # 因此这里必须传入当前的 loss
+        server.next_round(current_loss=test_results['loss'])
 
         round_time = time.time() - round_start
         logger.info(f"本轮完成，耗时: {round_time:.2f}秒")
@@ -217,7 +225,6 @@ def main():
     save_results(config, history, server, timestamp)
 
     return history
-
 
 
 if __name__ == "__main__":

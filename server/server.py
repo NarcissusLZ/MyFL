@@ -121,7 +121,7 @@ class Server:
 
         # === 新增: Loss 自适应相关状态 ===
         self.prev_test_loss = None  # 记录上一轮 Loss (L_{t-1})
-        self.min_critical_ratio = 0.3  # δ_min
+        self.min_critical_ratio = 0.1  # δ_min
         self.max_critical_ratio = 0.5  # δ_max
         self.sigmoid_k = config.get('sigmoid_k', 20.0)  # Sigmoid 斜率 k
         self.sigmoid_tau = config.get('sigmoid_tau', 0.05)  # 中心偏移 tau (假设loss变化率一般在这个量级)

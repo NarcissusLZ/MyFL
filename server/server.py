@@ -178,18 +178,37 @@ class Server:
     def init_model(self):
         model_name = self.config['model']
         dataset_name = self.config['dataset']
-        # (保持原有的模型初始化逻辑不变)
+
         if model_name == 'VGG16':
             from models.vgg16 import CIFAR10_VGG16, CIFAR100_VGG16
-            return CIFAR10_VGG16(num_classes=10) if dataset_name == 'cifar10' else CIFAR100_VGG16(num_classes=100)
+            if dataset_name == 'cifar10':
+                return CIFAR10_VGG16(num_classes=10)
+            elif dataset_name == 'cifar100':
+                return CIFAR100_VGG16(num_classes=100)
+
         elif model_name == 'RESNET18':
-            from models.resnet18 import CIFAR10_ResNet18, CIFAR100_ResNet18
-            return CIFAR10_ResNet18(num_classes=10) if dataset_name == 'cifar10' else CIFAR100_ResNet18(num_classes=100)
+            # 1. 修改导入语句，加入 GoogleSpeech_ResNet18
+            from models.resnet18 import CIFAR10_ResNet18, CIFAR100_ResNet18, GoogleSpeech_ResNet18
+
+            if dataset_name == 'cifar10':
+                return CIFAR10_ResNet18(num_classes=10)
+            elif dataset_name == 'cifar100':
+                return CIFAR100_ResNet18(num_classes=100)
+            # 2. 新增 Google Speech 的初始化逻辑
+            elif dataset_name == 'googlespeech':
+                # num_classes=12 对应 (10个核心词 + Silence + Unknown)
+                # 如果你在 getdata.py 里没有做 filter，用了全部35个类，这里改成 35
+                return GoogleSpeech_ResNet18(num_classes=12)
+
         elif model_name == 'RESNET50':
             from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50
-            return CIFAR10_ResNet50(num_classes=10) if dataset_name == 'cifar10' else CIFAR100_ResNet50(num_classes=100)
-        else:
-            raise ValueError(f"未知模型: {model_name}")
+            if dataset_name == 'cifar10':
+                return CIFAR10_ResNet50(num_classes=10)
+            elif dataset_name == 'cifar100':
+                return CIFAR100_ResNet50(num_classes=100)
+
+        # 如果没有匹配到任何组合
+        raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 
     def _select_device(self, device_config):
         if device_config == 'cuda' and torch.cuda.is_available():

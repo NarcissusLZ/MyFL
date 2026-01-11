@@ -46,19 +46,12 @@ class LayerMetricCalculator:
 
             if name in self.prev_weights:
                 prev_w = self.prev_weights[name].to(param.device)
-
-                # === 修改点 1: 实现公式 (12) ===
-                # V_l^t = ||W_t - W_{t-1}|| / sqrt(N_l)
-                # 消除层规模差异带来的偏差
                 l2_norm = torch.norm(param.data - prev_w, p=2).item()
                 if num_params > 0:
                     movement = l2_norm / math.sqrt(num_params)
                 else:
                     movement = l2_norm
 
-            # === 修改点 2: 实现公式 (13) ===
-            # H_l^t = lambda * H_{t-1} + (1-lambda) * V_l^t
-            # 平滑衰减系数 lambda 取 0.8
             self.movement_ema[name] = (
                     0.8 * self.movement_ema[name] + 0.2 * movement
             )
@@ -66,8 +59,8 @@ class LayerMetricCalculator:
 
             metrics_data.append({
                 'name': name,
-                'movement': movement,  # V_l^t
-                'grad': grad_approx  # H_l^t
+                'movement': movement,
+                'grad': grad_approx
             })
 
         return metrics_data
@@ -78,7 +71,7 @@ class Server:
         self.config = config
         self.device = torch.device('cuda:0') if torch.cuda.is_available() else self._select_device(config['device'])
 
-        # 设置随机种子
+        # 设置随机种���
         self.random_seed = config.get('random_seed', 42)
         self._set_random_seeds()
 
@@ -117,7 +110,7 @@ class Server:
 
         # 分层配置
         self.use_dynamic_layer_classification = config.get('use_dynamic_layer_classification', False)
-        self.grad_beta = config.get('grad_beta', 1.0)  # 调节因子 gamma (公式 14)
+        self.grad_beta = config.get('grad_beta', 1.0)
 
         # === 新增: Loss 自适应相关状态 ===
         self.prev_test_loss = None  # 记录上一轮 Loss (L_{t-1})
@@ -156,14 +149,12 @@ class Server:
         return self.client_random_generators[client_id]
 
     def _init_default_layers(self):
-        """初始化默认分层（第0轮，100%关键层）"""
         all_layers = [name for name, _ in self.global_model.named_parameters() if 'weight' in name]
         self.cached_critical_layers = all_layers
         self.cached_robust_layers = []
         print(f"初始分层: 100% 关键层 (TCP)")
 
     def _init_fixed_layers(self):
-        """非动态模式下的固定分层"""
         all_layers = [name for name, _ in self.global_model.named_parameters() if 'weight' in name]
         cutoff = int(len(all_layers) * self.min_critical_ratio)
         self.cached_critical_layers = all_layers[:cutoff]
@@ -178,36 +169,26 @@ class Server:
     def init_model(self):
         model_name = self.config['model']
         dataset_name = self.config['dataset']
-
         if model_name == 'VGG16':
             from models.vgg16 import CIFAR10_VGG16, CIFAR100_VGG16
             if dataset_name == 'cifar10':
                 return CIFAR10_VGG16(num_classes=10)
             elif dataset_name == 'cifar100':
                 return CIFAR100_VGG16(num_classes=100)
-
         elif model_name == 'RESNET18':
-            # 1. 修改导入语句，加入 GoogleSpeech_ResNet18
             from models.resnet18 import CIFAR10_ResNet18, CIFAR100_ResNet18, GoogleSpeech_ResNet18
-
             if dataset_name == 'cifar10':
                 return CIFAR10_ResNet18(num_classes=10)
             elif dataset_name == 'cifar100':
                 return CIFAR100_ResNet18(num_classes=100)
-            # 2. 新增 Google Speech 的初始化逻辑
             elif dataset_name == 'googlespeech':
-                # num_classes=12 对应 (10个核心词 + Silence + Unknown)
-                # 如果你在 getdata.py 里没有做 filter，用了全部35个类，这里改成 35
                 return GoogleSpeech_ResNet18(num_classes=12)
-
         elif model_name == 'RESNET50':
             from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50
             if dataset_name == 'cifar10':
                 return CIFAR10_ResNet50(num_classes=10)
             elif dataset_name == 'cifar100':
                 return CIFAR100_ResNet50(num_classes=100)
-
-        # 如果没有匹配到任何组合
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 
     def _select_device(self, device_config):
@@ -230,7 +211,6 @@ class Server:
         return selected_clients
 
     def _gilbert_elliott_packet_loss(self, client):
-        # (保持原有的丢包模拟逻辑不变)
         client_id = client.id
         client_loss_rate = client.packet_loss
         if client_loss_rate == 0: return False
@@ -261,100 +241,53 @@ class Server:
         return packets, data_bytes
 
     def get_adaptive_critical_ratio(self, current_loss):
-        """
-        基于开题报告公式 (15) 和 (16) 的自适应比例计算
-        根据 Loss 变化率动态调整关键层比例
-        """
         if self.prev_test_loss is None:
-            # 第一轮没有上一轮Loss，默认高保护
             self.prev_test_loss = current_loss
             return 1.0
-
-        # === 公式 (15): Loss 相对变化率 r_t ===
         epsilon = 1e-6
-        # r_t < 0 表示 Loss 下降。训练初期下降快，r_t 为较大的负数。
         r_t = (current_loss - self.prev_test_loss) / (self.prev_test_loss + epsilon)
-
-        # 为了符合 Sigmoid 的直觉（输入越大，输出越大），我们取变化率的“幅度”或者反转符号
-        # 报告意图：训练初期(变化大/下降快) -> 高TCP比例。训练后期(稳定) -> 低TCP比例。
-        # 如果 r_t = -0.5 (下降快), 我们希望 Sigmoid 输出接近 1。
-        # 如果 r_t = -0.01 (稳定), 我们希望 Sigmoid 输出接近 0。
-        # 因此，我们可以使用 -r_t (即下降的幅度) 作为输入指标。
         input_metric = -r_t
-
-        # === 公式 (16): Sigmoid 映射 ===
-        # delta_t = min + (max - min) * Sigmoid(k * (input - tau))
-        # k: 斜率，控制敏感度
-        # tau: 阈值偏移
         try:
             sigmoid_val = 1 / (1 + math.exp(-self.sigmoid_k * (input_metric - self.sigmoid_tau)))
         except OverflowError:
             sigmoid_val = 1.0 if (input_metric - self.sigmoid_tau) > 0 else 0.0
-
         adaptive_ratio = self.min_critical_ratio + (self.max_critical_ratio - self.min_critical_ratio) * sigmoid_val
-
-        # 更新上一轮 Loss
         self.prev_test_loss = current_loss
-
         print(
             f"  [自适应比例] Loss变化率 r_t: {r_t:.4f}, 输入Sigmoid: {input_metric:.4f}, 计算比例: {adaptive_ratio * 100:.1f}%")
         return adaptive_ratio
 
     def classify_layers_dual_factor(self, current_loss=None):
-        """
-        基于双因子动态分层（公式 14）
-        现在接收 current_loss 来计算自适应比例
-        """
         if not self.use_dynamic_layer_classification or self.metric_calculator is None:
             return self.cached_critical_layers, self.cached_robust_layers
-
-        # === 步骤 1: 计算自适应关键层比例 ===
         if current_loss is not None:
             effective_ratio = self.get_adaptive_critical_ratio(current_loss)
         else:
-            effective_ratio = 1.0  # 默认安全策略
-        # =================================
-
-        # === 步骤 2: 获取双因子指标 (公式 12 & 13) ===
+            effective_ratio = 1.0
         raw_data = self.metric_calculator.get_dual_metrics(self.global_model)
         if not raw_data:
             return self.cached_critical_layers, self.cached_robust_layers
-
-        # 提取指标用于归一化
-        movements = [x['movement'] for x in raw_data]  # V_l
-        grads = [x['grad'] for x in raw_data]  # H_l
-
+        movements = [x['movement'] for x in raw_data]
+        grads = [x['grad'] for x in raw_data]
         max_mov = max(movements) if movements and max(movements) > 0 else 1.0
         max_grad = max(grads) if grads and max(grads) > 0 else 1.0
-
-        # === 步骤 3: 综合打分与排序 (公式 14) ===
-        # S_l = V_l/max(V) + gamma * H_l/max(H)
         final_scores = []
         for item in raw_data:
             norm_mov = item['movement'] / max_mov
             norm_grad = item['grad'] / max_grad
-            # self.grad_beta 对应公式中的 gamma
             combined_score = norm_mov + self.grad_beta * norm_grad
             final_scores.append({'name': item['name'], 'score': combined_score})
-
         final_scores.sort(key=lambda x: x['score'], reverse=True)
-
-        # === 步骤 4: 划分层 ===
         num_critical = max(1, int(len(final_scores) * effective_ratio))
-
         critical_names = [x['name'] for x in final_scores[:num_critical]]
         robust_names = [x['name'] for x in final_scores[num_critical:]]
-
         self.cached_critical_layers = critical_names
         self.cached_robust_layers = robust_names
-
         print(
             f"动态分层完成: 关键层 {len(critical_names)} (Top {effective_ratio * 100:.0f}%), 鲁棒层 {len(robust_names)}")
-
         return self.cached_critical_layers, self.cached_robust_layers
 
     def _get_packet_layer_type_map(self, state_dict, total_size, packet_size=1500):
-        # (保持原有的映射逻辑不变)
         critical_layers = self.cached_critical_layers
         robust_layers = self.cached_robust_layers
         packet_map = {}
@@ -381,9 +314,12 @@ class Server:
             if i not in packet_map: packet_map[i] = 'critical'
         return packet_map
 
-    def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
-        # (保持原有的接收逻辑不变，包含TCP/UDP重传判断)
-        if model_state_dict is None: return False
+    def simulate_transmission(self, client, model_state_dict, num_samples):
+        """
+        核心方法：模拟传输并返回结果，但不立即更新服务器的统计信息。
+        用于在 Top-K 模式下预先计算每个客户端的耗时和结果。
+        """
+        if model_state_dict is None: return None
         client_id = client.id
         transport_type = self.config.get('Transport', 'TCP')
         packet_size = 1500
@@ -403,8 +339,8 @@ class Server:
         critical_bytes_transmitted = 0
         robust_transmissions = 0
         critical_transmissions = 0
-        initial_losses = 0
         total_transmissions = 0
+        initial_losses = 0
 
         for i, packet_data in enumerate(packets):
             current_packet_size = len(packet_data)
@@ -441,7 +377,6 @@ class Server:
                 if not should_retransmit_on_loss: break
                 if attempts > max_retries: break
 
-        retransmissions = total_transmissions - num_packets
         reconstructed_bytes = bytearray(total_size)
         for i in range(num_packets):
             start = i * packet_size
@@ -455,26 +390,55 @@ class Server:
         try:
             reconstructed_state_dict = torch.load(buffer)
         except Exception:
-            return False
+            return None
 
-        self.client_weights[client_id] = {
+        # 返回模拟结果包
+        return {
+            'client_id': client_id,
             'state_dict': reconstructed_state_dict,
-            'num_samples': num_samples
+            'num_samples': num_samples,
+            'transmission_time': total_transmission_time,
+            'metrics': {
+                'actual_received_size': robust_bytes_transmitted + critical_bytes_transmitted,
+                'robust_bytes': robust_bytes_transmitted,
+                'critical_bytes': critical_bytes_transmitted,
+                'robust_count': robust_transmissions,
+                'critical_count': critical_transmissions
+            }
         }
-        actual_received_size = robust_bytes_transmitted + critical_bytes_transmitted
-        self.round_transmission_times[client_id] = total_transmission_time
-        self.total_up_communication += actual_received_size
-        self.round_up_communication += actual_received_size
-        self.total_robust_communication += robust_bytes_transmitted
-        self.round_robust_communication += robust_bytes_transmitted
-        self.total_critical_communication += critical_bytes_transmitted
-        self.round_critical_communication += critical_bytes_transmitted
-        self.total_robust_transmission_count += robust_transmissions
-        self.round_robust_transmission_count += robust_transmissions
-        self.total_critical_transmission_count += critical_transmissions
-        self.round_critical_transmission_count += critical_transmissions
 
-        return True
+    def receive_local_model(self, client, model_state_dict, num_samples, current_round=None, current_accuracy=None):
+        """兼容旧方法的 Wrapper"""
+        result = self.simulate_transmission(client, model_state_dict, num_samples)
+        if result:
+            self.update_server_stats([result])
+            return True
+        return False
+
+    def update_server_stats(self, results):
+        """
+        批量接受客户端结果（Top-K 策略调用此方法）
+        """
+        for res in results:
+            client_id = res['client_id']
+            metrics = res['metrics']
+
+            self.client_weights[client_id] = {
+                'state_dict': res['state_dict'],
+                'num_samples': res['num_samples']
+            }
+            self.round_transmission_times[client_id] = res['transmission_time']
+
+            self.total_up_communication += metrics['actual_received_size']
+            self.round_up_communication += metrics['actual_received_size']
+            self.total_robust_communication += metrics['robust_bytes']
+            self.round_robust_communication += metrics['robust_bytes']
+            self.total_critical_communication += metrics['critical_bytes']
+            self.round_critical_communication += metrics['critical_bytes']
+            self.total_robust_transmission_count += metrics['robust_count']
+            self.round_robust_transmission_count += metrics['robust_count']
+            self.total_critical_transmission_count += metrics['critical_count']
+            self.round_critical_transmission_count += metrics['critical_count']
 
     def finalize_round_transmission_time(self):
         if self.round_transmission_times:
@@ -484,20 +448,11 @@ class Server:
             self.max_transmission_times.append(0.0)
 
     def next_round(self, current_loss=None):
-        """
-        准备下一轮训练
-        修改：接收 current_loss 用于计算下一轮的自适应比例
-        """
-        # 1. 动态分层计算 (传入当前的 Loss)
         if self.use_dynamic_layer_classification:
             print(f"正在基于 Loss ({current_loss:.4f}) 计算下一轮传输策略...")
             self.classify_layers_dual_factor(current_loss)
-
-        # 2. 更新权重变化量的基准 (W_{t-1} -> W_t)
         if self.use_dynamic_layer_classification and self.metric_calculator:
             self.metric_calculator.update_prev_weights(self.global_model)
-
-        # 3. 记录日志
         self.communication_history.append({
             'round': len(self.communication_history) + 1,
             'up_communication': self.round_up_communication,
@@ -506,8 +461,6 @@ class Server:
             'robust_transmissions': self.round_robust_transmission_count,
             'critical_transmissions': self.round_critical_transmission_count
         })
-
-        # 4. 重置本轮计数器
         self.round_up_communication = 0
         self.round_robust_communication = 0
         self.round_critical_communication = 0

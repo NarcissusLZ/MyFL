@@ -1,9 +1,4 @@
 import logging
-import yaml
-import torch
-import os
-import time
-import numpy as np
 
 # 配置日志
 logging.basicConfig(
@@ -69,10 +64,9 @@ def main():
     logger.info("初始化客户端...")
     clients = {}
     for i, (client_id, data_subset) in enumerate(client_data.items()):
-        # 为客户端分配GPU ID，跳过GPU 0（保留给服务器）
         gpu_id = None
         if available_gpus > 1:
-            gpu_id = (i % (available_gpus - 1)) + 1  # 从GPU 1开始循环分配
+            gpu_id = (i % (available_gpus - 1)) + 1
 
         clients[client_id] = Client(
             id=client_id,
@@ -84,10 +78,7 @@ def main():
         if gpu_id is not None:
             logger.info(f"客户端 {client_id} 分配到GPU {gpu_id}")
 
-    # 打印每个客户端的数据量和类别分布
     logger.info("\n客户端数据分布:")
-
-    # 创建结果目录和文件
     result_dir = config.get('result_dir', 'results')
     os.makedirs(result_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -100,31 +91,21 @@ def main():
         f.write("=" * 50 + "\n\n")
 
         for client_id, data_subset in client_data.items():
-            # 获取该客户端的所有标签
             labels = [data_subset[i][1] for i in range(len(data_subset))]
-
-            # 统计类别分布
             unique_labels, counts = np.unique(labels, return_counts=True)
             label_distribution = dict(zip(unique_labels, counts))
-
-            # 计算类别比例
             total_samples = len(data_subset)
             label_ratios = {label: count / total_samples for label, count in label_distribution.items()}
-
-            # 获取对应客户端对象以访问距离和丢包率
             client = clients[client_id]
-            # 同时输出到日志和文件
             info_lines = [
                 f"客户端 {client_id}: {total_samples} 个样本",
                 f"  距离: {client.distance:.2f}m, 丢包率: {client.packet_loss:.3f}",
                 f"  类别分布: {label_distribution}",
                 f"  类别比例: {dict((k, f'{v:.2%}') for k, v in label_ratios.items())}"
             ]
-
             for line in info_lines:
                 logger.info(line)
                 f.write(line + "\n")
-
             f.write("\n")
 
     logger.info(f"\n客户端分布信息已保存至: {client_info_path}")
@@ -145,51 +126,82 @@ def main():
 
     start_time = time.time()
 
+    # === 新增配置项：过量选择比例 ===
+    over_selection_factor = 1.2
+
     for round in range(config['num_rounds']):
         round_start = time.time()
         logger.info("\n" + '=' * 20 + f"训练轮次 {round + 1}/{config['num_rounds']}" + '=' * 20)
 
-        # a. 服务器选择客户端
+        # a. 计算本轮目标客户端数量与过量选择数量
+        total_clients = len(clients)
+        target_k = int(total_clients * config['client_fraction'])
+        select_num = int(target_k * over_selection_factor)
+
+        # 确保选择数量不超过总数
+        select_num = min(select_num, total_clients)
+
+        # 使用自定义的比例调用 select_clients
+        actual_fraction = select_num / total_clients if total_clients > 0 else 0
+
         selected_clients = server.select_clients(
             list(clients.values()),
-            fraction=config['client_fraction']
+            fraction=actual_fraction
         )
         client_ids = [client.id for client in selected_clients]
-        logger.info(f"本轮选中客户端: {client_ids}")
+        logger.info(f"本轮调度 {len(selected_clients)} 个客户端进行训练 (目标聚合: Top {target_k})")
+        logger.info(f"调度详情: {client_ids}")
         history['clients_selected'].append(len(selected_clients))
 
         # b. 服务器向选中客户端广播全局模型参数
         server.broadcast_model(selected_clients)
 
-        # c. 客户端本地训练
+        # c. 客户端本地训练 (并行模拟)
         client_updates = {}
         for client in selected_clients:
             model_state, num_samples = client.local_train()
             client_updates[client.id] = {
                 'model_state': model_state,
                 'num_samples': num_samples,
-                'client': client  # 保存客户端对象引用
+                'client': client
             }
 
-        # d. 客户端上传模型更新给服务器
-        current_accuracy = None
-        if round > 0:  # 第一轮没有历史精度
-            current_accuracy = history['accuracy'][-1]  # 使用上一轮的精度
+        # d. 客户端上传模型更新 (模拟传输并收集结果)
+        simulation_results = []
 
         for client_id, update in client_updates.items():
-            # 注意：receive_local_model 的参数可以保持不变，或者根据需要调整
-            success = server.receive_local_model(
-                update['client'],  # 传递客户端对象而非ID
+            # 使用新方法 simulat_transmission 获取结果但不立即更新 Global Stats
+            result = server.simulate_transmission(
+                update['client'],
                 update['model_state'],
-                update['num_samples'],
-                current_round=round + 1,  # 这些参数仅用于记录日志，不影响核心逻辑
-                current_accuracy=current_accuracy
+                update['num_samples']
             )
 
-            if not success:
-                logger.warning(f"客户端 {client_id} 的模型更新接收失败")
+            if result:
+                simulation_results.append(result)
+            else:
+                logger.warning(f"客户端 {client_id} 传输完全失败 (模型损坏)")
 
-        # 记录本轮最大传输时间（在聚合前）
+        # === 核心逻辑修改：基于传输时间排序并截取 Top-K ===
+        # 1. 按传输时间升序排序
+        simulation_results.sort(key=lambda x: x['transmission_time'])
+
+        # 2. 截取前 K 个最快完成的节点
+        winners = simulation_results[:target_k]
+
+        if len(winners) < target_k:
+            logger.warning(f"注意: 成功回传的节点数 ({len(winners)}) 少于目标数 ({target_k})")
+
+        winner_ids = [res['client_id'] for res in winners]
+        times = [res['transmission_time'] for res in winners]
+        logger.info(f"聚合 Top-{len(winners)} 节点: {winner_ids}")
+        if times:
+            logger.info(f"  传输时间范围: {min(times):.4f}s - {max(times):.4f}s")
+
+        # 3. 将胜者的数据注册到服务器（更新流量统计和 client_weights）
+        server.update_server_stats(winners)
+
+        # 4. 记录本轮最大传输时间 (由 Top-K 中的最慢者决定)
         server.finalize_round_transmission_time()
 
         # e. 服务器聚合模型更新
@@ -206,9 +218,7 @@ def main():
         history['accuracy'].append(test_results['accuracy'])
         history['loss'].append(test_results['loss'])
 
-        # === 核心修改: h. 进入下一轮 ===
-        # 根据开题报告 2.3.2 逻辑，下一轮的分层比例基于当前 Loss 的变化率
-        # 因此这里必须传入当前的 loss
+        # h. 进入下一轮
         server.next_round(current_loss=test_results['loss'])
 
         round_time = time.time() - round_start

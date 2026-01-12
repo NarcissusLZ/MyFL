@@ -182,7 +182,7 @@ class Server:
             elif dataset_name == 'cifar100':
                 return CIFAR100_ResNet18(num_classes=100)
             elif dataset_name == 'googlespeech':
-                return GoogleSpeech_ResNet18(num_classes=12)
+                return GoogleSpeech_ResNet18(num_classes=35)
         elif model_name == 'RESNET50':
             from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50
             if dataset_name == 'cifar10':

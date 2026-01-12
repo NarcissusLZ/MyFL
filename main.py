@@ -91,7 +91,20 @@ def main():
         f.write("=" * 50 + "\n\n")
 
         for client_id, data_subset in client_data.items():
-            labels = [data_subset[i][1] for i in range(len(data_subset))]
+            # === 优化开始 ===
+            # 直接从元数据中获取标签，避免触发 __getitem__ (即避免加载音频/图片和做频谱变换)
+            if hasattr(data_subset, 'dataset') and hasattr(data_subset.dataset, 'targets'):
+                # 针对 Subset 对象 (通常用于联邦学习划分)
+                # data_subset.indices 存储了该客户端分配到的样本在原始数据集中的索引
+                labels = [int(data_subset.dataset.targets[i]) for i in data_subset.indices]
+            elif hasattr(data_subset, 'targets'):
+                # 针对原始 Dataset 对象
+                labels = [int(x) for x in data_subset.targets]
+            else:
+                # 兜底方案：如果结构特殊，被迫使用慢速加载
+                labels = [int(data_subset[i][1]) for i in range(len(data_subset))]
+            # === 优化结束 ===
+
             unique_labels, counts = np.unique(labels, return_counts=True)
             label_distribution = dict(zip(unique_labels, counts))
             total_samples = len(data_subset)

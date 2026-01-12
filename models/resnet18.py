@@ -125,7 +125,7 @@ class CIFAR100_ResNet18(nn.Module):
 
 
 class GoogleSpeech_ResNet18(nn.Module):
-    def __init__(self, num_classes=12):
+    def __init__(self, num_classes=35):
         """
         适用于 Google Speech Commands 的 ResNet-18
         :param num_classes: 默认为12 (10个核心命令 + Unknown + Silence)

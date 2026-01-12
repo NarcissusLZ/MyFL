@@ -83,7 +83,9 @@ class Server:
         self.test_loader = DataLoader(
             test_dataset,
             batch_size=config['test_batch_size'],
-            shuffle=False
+            shuffle=False,
+            num_workers=16,  # <--- 关键修改：建议设置 4 或 8
+            pin_memory=True  # <--- 关键修改：加速 CUDA 传输
         )
 
         # 通信量统计
@@ -481,19 +483,30 @@ class Server:
         }
 
     def test_model(self):
-        print("开始模型测试")
+        print("开始模型测试 (正在加载数据，这可能需要几十秒...)")
         self.global_model.eval()
         test_loss = 0
         correct = 0
         total = 0
+
+        # === 修改 2：添加进度提示 ===
+        total_batches = len(self.test_loader)
+
         with torch.no_grad():
-            for data, target in self.test_loader:
+            for i, (data, target) in enumerate(self.test_loader):
+                # 每 10 个 batch 打印一次，证明程序还活着
+                if i % 10 == 0:
+                    print(f"  [Testing] Batch {i}/{total_batches}...", end='\r')
+
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.global_model(data)
                 test_loss += nn.CrossEntropyLoss()(output, target).item()
                 pred = output.argmax(dim=1, keepdim=True)
                 correct += pred.eq(target.view_as(pred)).sum().item()
                 total += target.size(0)
+
+        print(f"  [Testing] 完成! 计算统计数据...              ")  # 清除上面的进度行
+
         avg_loss = test_loss / len(self.test_loader)
         accuracy = 100. * correct / total
         print(f"测试结果 | 损失: {avg_loss:.4f} | 准确率: {accuracy:.2f}%")

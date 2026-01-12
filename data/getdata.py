@@ -1,9 +1,11 @@
+import os
 import torch
 import torch.nn as nn
 import torchaudio
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset
 import numpy as np
+
 
 class GoogleSpeechWrapper(Dataset):
     def __init__(self, root, subset, transform=None):
@@ -17,32 +19,45 @@ class GoogleSpeechWrapper(Dataset):
         self.transform = transform
 
         # 定义核心标签集合 (V2 数据集标准 35 个词)
-        # 如果你想只做 12 分类 (10 command + silence + unknown)，需要在这里做额外的过滤逻辑
-        # 这里为了通用性，我们使用数据集中出现的所有标签
         self.classes = sorted(['backward', 'bed', 'bird', 'cat', 'dog', 'down', 'eight', 'five', 'follow',
                                'forward', 'four', 'go', 'happy', 'house', 'learn', 'left', 'marvin', 'nine',
                                'no', 'off', 'on', 'one', 'right', 'seven', 'sheila', 'six', 'stop', 'three',
                                'tree', 'two', 'up', 'visual', 'wow', 'yes', 'zero'])
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
 
-        # 预计算 targets (耗时操作，但在初始化时必须做一次，以便 split.py 使用)
-        # 注意：这里我们遍历一次数据集来构建 targets 列表
-        print(f"Processing {subset} dataset metadata for split generation...")
+        # 预计算 targets
+        # === 优化开始 ===
+        # 原代码遍历 self.dataset[i] 会触发音频加载，导致初始化极其缓慢。
+        # 这里改为直接解析文件路径获取标签。
+        print(f"Processing {subset} dataset metadata for split generation (Optimized)...")
         self.targets = []
         self._indices = []
 
-        # 这种遍历方式确保我们过滤掉不在 classes 列表中的异常数据（如果有的话）
-        for i in range(len(self.dataset)):
-            item = self.dataset[i]
-            label = item[2]  # label is at index 2
+        # _walker 存储了所有音频文件的路径
+        for i, file_path in enumerate(self.dataset._walker):
+            # 获取路径字符串
+            path_str = str(file_path)
+
+            # 解析标签：通常结构为 .../dataset_root/label/filename.wav
+            # 获取文件所在的父文件夹名即为标签
+            label = os.path.basename(os.path.dirname(path_str))
+
+            # 兼容性处理：防止路径解析异常
+            if not label:
+                parts = path_str.split(os.sep)
+                if len(parts) > 1:
+                    label = parts[-2]
+
+            # 仅保留我们在 self.classes 中定义的感兴趣的类别
             if label in self.class_to_idx:
                 self.targets.append(self.class_to_idx[label])
                 self._indices.append(i)
+        # === 优化结束 ===
 
-        print(f"Loaded {len(self.targets)} samples.")
+        print(f"Loaded {len(self.targets)} samples efficiently.")
 
     def __getitem__(self, index):
-        # 获取原始数据
+        # 获取原始数据 (映射回原始数据集的索引)
         original_index = self._indices[index]
         waveform, sample_rate, label, speaker_id, utterance_number = self.dataset[original_index]
 
@@ -75,8 +90,8 @@ class GoogleSpeechWrapper(Dataset):
     def __len__(self):
         return len(self.targets)
 
-def get_dataset(dir, name):
 
+def get_dataset(dir, name):
     if name == 'mnist':
         transform_train = transforms.Compose([
             transforms.ToTensor(),
@@ -129,17 +144,16 @@ def get_dataset(dir, name):
         train_dataset = datasets.CIFAR100(dir, train=True, download=True, transform=transform_train)
         eval_dataset = datasets.CIFAR100(dir, train=False, transform=transform_test)
 
-    # --- 新增：Google Speech 处理逻辑 ---
+    # --- Google Speech 处理逻辑 ---
     elif name == 'googlespeech':
-        # 这里可以是针对频谱图的归一化，或者留空
-        # 因为我们在 Dataset Wrapper 里已经做了 log 转换，这里简单归一化即可
-        # 这里的 mean 和 std 是基于 Log-Mel 频谱图的大致估算值
+        # 因为在 Dataset Wrapper 里已经做了 log 转换，这里简单归一化即可
+        # 这里的 mean 和 std 是基于 Log-Mel 频谱图的大致估算值，用于加速收敛
         transform_common = transforms.Compose([
-            transforms.Normalize((0.5,), (0.5,)) # 简单的标准化
+            transforms.Normalize((0.5,), (0.5,))
         ])
 
         train_dataset = GoogleSpeechWrapper(dir, subset='training', transform=transform_common)
-        # Google Speech 有 validation 和 testing 两个集，通常为了简单这里只取 testing 作 eval
+        # Google Speech 有 validation 和 testing 两个集，这里使用 testing 作为评估集
         eval_dataset = GoogleSpeechWrapper(dir, subset='testing', transform=transform_common)
 
     else:

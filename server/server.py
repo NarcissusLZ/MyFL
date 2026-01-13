@@ -186,11 +186,13 @@ class Server:
             elif dataset_name == 'googlespeech':
                 return GoogleSpeech_ResNet18(num_classes=35)
         elif model_name == 'RESNET50':
-            from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50
+            from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50, ImageNet_ResNet50
             if dataset_name == 'cifar10':
                 return CIFAR10_ResNet50(num_classes=10)
             elif dataset_name == 'cifar100':
                 return CIFAR100_ResNet50(num_classes=100)
+            elif dataset_name == 'imagenet':
+                return ImageNet_ResNet50(num_classes=1000)
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 
     def _select_device(self, device_config):

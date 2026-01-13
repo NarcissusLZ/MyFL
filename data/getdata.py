@@ -156,6 +156,34 @@ def get_dataset(dir, name):
         # Google Speech 有 validation 和 testing 两个集，这里使用 testing 作为评估集
         eval_dataset = GoogleSpeechWrapper(dir, subset='testing', transform=transform_common)
 
+    elif name == 'imagenet':
+        # ImageNet 标准均值和方差
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+
+        transform_train = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+        transform_test = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+        # 假设目录结构为:
+        # dir/train/n01440764/xxx.JPEG
+        # dir/val/n01440764/xxx.JPEG
+        train_dir = os.path.join(dir, 'train')
+        val_dir = os.path.join(dir, 'val')
+
+        train_dataset = datasets.ImageFolder(train_dir, transform=transform_train)
+        eval_dataset = datasets.ImageFolder(val_dir, transform=transform_test)
+
     else:
         raise ValueError(f"Unknown dataset name: {name}")
 

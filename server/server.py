@@ -193,6 +193,25 @@ class Server:
                 return CIFAR100_ResNet50(num_classes=100)
             elif dataset_name == 'imagenet':
                 return ImageNet_ResNet50(num_classes=1000)
+
+        elif model_name == 'MOBILENET_V1':
+            from models.mobilenet_audio import MobileNetV1_Audio
+            if dataset_name == 'googlespeech':
+                 return MobileNetV1_Audio(num_classes=35, input_channels=1)
+            elif dataset_name == 'cifar10':
+                return MobileNetV1_Audio(num_classes=10, input_channels=3)
+            elif dataset_name == 'cifar100':
+                return MobileNetV1_Audio(num_classes=100, input_channels=3)
+
+        elif model_name == 'MOBILENET_V2':
+            from models.mobilenet_audio import MobileNetV2_Audio
+            if dataset_name == 'googlespeech':
+                return MobileNetV2_Audio(num_classes=35, input_channels=1)
+            elif dataset_name == 'cifar10':
+                return MobileNetV2_Audio(num_classes=10, input_channels=3)
+            elif dataset_name == 'cifar100':
+                return MobileNetV2_Audio(num_classes=100, input_channels=3)
+
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 
     def _select_device(self, device_config):

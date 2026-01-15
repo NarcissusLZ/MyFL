@@ -30,41 +30,49 @@ class IoT23Dataset(Dataset):
 
 
 def load_iot23_data(root_dir):
-    """
-    读取并预处理 IoT-23 数据。
-    假设 root_dir 下有一个 'iot23_processed.csv' 或类似的合并文件。
-    如果文件不存在，为了演示代码运行，我们将生成随机数据。
-    """
     file_path = os.path.join(root_dir, 'iot23.csv')
 
     if os.path.exists(file_path):
         print(f"Loading IoT-23 data from {file_path}...")
-        df = pd.read_csv(file_path)
 
-        # === 简单预处理示例 ===
-        # 1. 假设最后一列是 Label，其他是特征
-        # 2. 实际应用中你需要处理 IP地址、端口号等，这里假设已经是数值型特征
+        # === 核心修改：增加 nrows 限制读取行数 ===
+        # 3.25亿数据全部读入会导致内存溢出和计算极慢。
+        # 建议读取 200万 到 500万 条数据进行实验，这对于验证 FL 算法已经足够了。
+        # 如果你确实想跑全量，请去掉 nrows 参数，但请确保你有 64GB 以上内存。
+        try:
+            df = pd.read_csv(file_path, nrows=5000000)
+            print(f"Successfully loaded top {len(df)} samples for training.")
+        except Exception as e:
+            print(f"Error reading CSV: {e}")
+            return None, None
+
+        # 1. 提取特征和标签
         X = df.iloc[:, :-1].values
         y = df.iloc[:, -1].values
 
-        # 标签编码 (String -> Int)
-        le = LabelEncoder()
-        y = le.fit_transform(y)
-        print(f"Classes found: {le.classes_}")
+        # 2. 标签编码
+        # 确保标签在 0-4 之间
+        y = y.astype(int)
+        unique_labels = np.unique(y)
+        print(f"Classes found: {unique_labels}")
 
-        # 特征归一化 (这对 MLP 收敛至关重要)
+        # 3. 特征归一化 (StandardScaler)
+        # 对于 MLP 极其重要
+        print("Normalizing features...")
         scaler = StandardScaler()
         X = scaler.fit_transform(X)
 
+        # 4. 转为 float32 节省内存
+        X = X.astype(np.float32)
+        y = y.astype(np.int64)
+
     else:
-        print(f"Warning: {file_path} not found. Generating synthetic IoT-like data for demonstration.")
-        # 生成模拟数据：10000条样本，16个特征，5个类别
-        np.random.seed(42)
-        X = np.random.randn(10000, 16).astype(np.float32)
+        # 模拟数据 fallback (也改为 10 维)
+        print(f"Warning: {file_path} not found. Generating synthetic data.")
+        X = np.random.randn(10000, 10).astype(np.float32)  # <--- 改为 10
         y = np.random.randint(0, 5, size=(10000,))
 
     return X, y
-
 class GoogleSpeechWrapper(Dataset):
     def __init__(self, root, subset, transform=None):
         """

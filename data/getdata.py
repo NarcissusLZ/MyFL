@@ -29,24 +29,20 @@ class IoT23Dataset(Dataset):
         return len(self.features)
 
 
-# --- 在 getdata.py 顶部补充 import ---
-import pyarrow.csv as pv
-import pyarrow as pa
-import gc
-
-
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
 
     # === 配置采样策略 ===
-    # 多数类：限制最大样本数 (例如每类最多 20万 或 50万)
-    # 少数类：全部保留
-    # 你的数据分布：
-    # 0 (Benign): 91M -> 限制到 500k
-    # 1 (DDoS):   19M -> 限制到 500k
-    # 2 (PortScan): 213M -> 限制到 500k
-    # 3 (C&C):    56k -> 全部保留
-    # 4 (Malware): 9k -> 全部保留
+    # 你的数据分布已更新：
+    # 2 (PortScan): 213M (多数)
+    # 4 (Malware):  61M  (多数) -> 必须限制！
+    # 0 (Benign):   30M  (多数)
+    # 1 (DDoS):     19M  (多数)
+    # 3 (C&C):      56k  (少数) -> 全部保留
+
+    # 建议：每类最多 20万，这样总数据量约 85万 (4*20w + 5.6w)
+    # 既能保证训练速度，又能保证有足够的特征，且相对平衡。
+    # 如果服务器性能强，可以设为 500000 (总数约 205万)
     LIMIT_PER_CLASS = 500000
 
     if os.path.exists(file_path):
@@ -62,24 +58,19 @@ def load_iot23_data(root_dir):
             # 2. 打开 CSV 流 (Stream)
             reader = pv.open_csv(
                 file_path,
-                read_options=pv.ReadOptions(use_threads=True, block_size=10 * 1024 * 1024)  # 10MB chunk
+                read_options=pv.ReadOptions(use_threads=True, block_size=10 * 1024 * 1024)
             )
 
             # 3. 分块读取并过滤
             for chunk in reader:
-                # 转为 Pandas 以便筛选
                 df_chunk = chunk.to_pandas()
 
-                # 假设 label 是最后一列 (根据之前的脚本，列名是 'label')
-                # 即使之前转成了 int，读取时 pyarrow 可能会根据 header 识别
                 if 'label' not in df_chunk.columns:
-                    # 兼容旧逻辑：如果最后一列是 label 但名字不对
                     df_chunk.rename(columns={df_chunk.columns[-1]: 'label'}, inplace=True)
 
                 filtered_rows = []
 
                 # 按类别分组筛选
-                # 这一步虽然在 Python 层做，但因为是分块处理，内存很安全
                 for cls_id in [0, 1, 2, 3, 4]:
                     # 如果该类已经攒够了，就跳过
                     if class_counts[cls_id] >= LIMIT_PER_CLASS:
@@ -89,9 +80,7 @@ def load_iot23_data(root_dir):
                     df_cls = df_chunk[df_chunk['label'] == cls_id]
 
                     if not df_cls.empty:
-                        # 计算还需要多少
                         needed = LIMIT_PER_CLASS - class_counts[cls_id]
-                        # 如果当前 chunk 的样本多于需要的，就截断
                         if len(df_cls) > needed:
                             df_cls = df_cls.iloc[:needed]
 
@@ -101,17 +90,21 @@ def load_iot23_data(root_dir):
                 if filtered_rows:
                     dfs.append(pd.concat(filtered_rows))
 
-                # 检查是否所有类都满了 (针对多数类，少数类肯定不满，所以通常会读完整个文件)
-                # 优化：如果 0,1,2 都满了，其实可以加速跳过，但为了拿到所有的 3和4，必须读完
+                # === 优化逻辑修改 ===
+                # 只有当所有的“多数类” (0, 1, 2, 4) 都满了，我们才只关注 3
+                # 但因为 3 (C&C) 极其稀有且分布在整个文件中，
+                # 我们实际上还是得读完整个文件来寻找 Class 3。
+                # 这里的判断主要用于控制台打印，告知用户哪些类已经满了。
                 if class_counts[0] >= LIMIT_PER_CLASS and \
-                        class_counts[1] >= LIMIT_PER_CLASS and \
-                        class_counts[2] >= LIMIT_PER_CLASS:
-                    # 此时只关心 3 和 4
+                   class_counts[1] >= LIMIT_PER_CLASS and \
+                   class_counts[2] >= LIMIT_PER_CLASS and \
+                   class_counts[4] >= LIMIT_PER_CLASS:
+                    # 此时 0,1,2,4 都满了，脚本正在全力搜索 Class 3
                     pass
 
-                    # 打印进度 (每攒够 10万条打印一次)
+                # 打印进度
                 current_total = sum(class_counts.values())
-                if current_total - total_kept > 100000:
+                if current_total - total_kept > 50000: # 每收集5万条打印一次
                     print(f"  Collecting... {class_counts}")
                     total_kept = current_total
 
@@ -128,7 +121,6 @@ def load_iot23_data(root_dir):
             X = full_df.iloc[:, :-1].values.astype(np.float32)
             y = full_df['label'].values.astype(np.int64)
 
-            # 释放内存
             del full_df, dfs
 
             print("  Normalizing features...")

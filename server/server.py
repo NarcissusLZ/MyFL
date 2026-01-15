@@ -200,7 +200,7 @@ class Server:
                 # 注意：这里的 input_dim=16 必须与 getdata.py 中的特征数列数一致
                 # num_classes 根据你的数据集实际类别数设定 (例如 Benign, DDoS, Recon...)
                 # 如果是模拟数据，我们在 getdata 里生成了 5 类
-                return IoT23_MLP(input_dim=16, num_classes=5)
+                return IoT23_MLP(input_dim=10, num_classes=5)
 
             # 也可以用 MLP 处理 MNIST (input=784)
             elif dataset_name == 'mnist':

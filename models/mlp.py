@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class IoT23_MLP(nn.Module):
-    def __init__(self, input_dim=16, num_classes=5):
+    def __init__(self, input_dim=10, num_classes=5):
         """
         适用于 IoT-23 数据集的轻量级 MLP
         Args:
@@ -48,7 +48,7 @@ class IoT23_MLP(nn.Module):
 
 if __name__ == '__main__':
     # 测试模型结构
-    model = IoT23_MLP(input_dim=16, num_classes=5)
+    model = IoT23_MLP(input_dim=10, num_classes=5)
     print(model)
 
     # 测试前向传播

@@ -6,6 +6,64 @@ from torchvision import datasets, transforms
 from torch.utils.data import Dataset
 import numpy as np
 
+import pandas as pd
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
+
+
+# --- 新增：IoT-23 数据集封装类 ---
+class IoT23Dataset(Dataset):
+    def __init__(self, features, labels):
+        """
+        Args:
+            features: 预处理后的 numpy array 或 tensor
+            labels: 预处理后的标签列表
+        """
+        self.features = torch.FloatTensor(features)
+        self.targets = torch.LongTensor(labels)  # self.targets 属性供 split.py 使用
+
+    def __getitem__(self, index):
+        return self.features[index], self.targets[index]
+
+    def __len__(self):
+        return len(self.features)
+
+
+def load_iot23_data(root_dir):
+    """
+    读取并预处理 IoT-23 数据。
+    假设 root_dir 下有一个 'iot23_processed.csv' 或类似的合并文件。
+    如果文件不存在，为了演示代码运行，我们将生成随机数据。
+    """
+    file_path = os.path.join(root_dir, 'iot23.csv')
+
+    if os.path.exists(file_path):
+        print(f"Loading IoT-23 data from {file_path}...")
+        df = pd.read_csv(file_path)
+
+        # === 简单预处理示例 ===
+        # 1. 假设最后一列是 Label，其他是特征
+        # 2. 实际应用中你需要处理 IP地址、端口号等，这里假设已经是数值型特征
+        X = df.iloc[:, :-1].values
+        y = df.iloc[:, -1].values
+
+        # 标签编码 (String -> Int)
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+        print(f"Classes found: {le.classes_}")
+
+        # 特征归一化 (这对 MLP 收敛至关重要)
+        scaler = StandardScaler()
+        X = scaler.fit_transform(X)
+
+    else:
+        print(f"Warning: {file_path} not found. Generating synthetic IoT-like data for demonstration.")
+        # 生成模拟数据：10000条样本，16个特征，5个类别
+        np.random.seed(42)
+        X = np.random.randn(10000, 16).astype(np.float32)
+        y = np.random.randint(0, 5, size=(10000,))
+
+    return X, y
 
 class GoogleSpeechWrapper(Dataset):
     def __init__(self, root, subset, transform=None):
@@ -183,6 +241,16 @@ def get_dataset(dir, name):
 
         train_dataset = datasets.ImageFolder(train_dir, transform=transform_train)
         eval_dataset = datasets.ImageFolder(val_dir, transform=transform_test)
+
+    elif name == 'iot23':
+        # 加载数据
+        X, y = load_iot23_data(dir)
+
+        # 划分训练集和测试集
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        train_dataset = IoT23Dataset(X_train, y_train)
+        eval_dataset = IoT23Dataset(X_test, y_test)
 
     else:
         raise ValueError(f"Unknown dataset name: {name}")

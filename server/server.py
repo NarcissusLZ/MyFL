@@ -195,7 +195,7 @@ class Server:
                 return ImageNet_ResNet50(num_classes=1000)
 
         elif model_name == 'MLP':
-            from mlp import IoT23_MLP
+            from models.mlp import IoT23_MLP
             if dataset_name == 'iot23':
                 # 注意：这里的 input_dim=16 必须与 getdata.py 中的特征数列数一致
                 # num_classes 根据你的数据集实际类别数设定 (例如 Benign, DDoS, Recon...)

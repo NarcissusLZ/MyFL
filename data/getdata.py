@@ -29,48 +29,91 @@ class IoT23Dataset(Dataset):
         return len(self.features)
 
 
+# --- 在 getdata.py 顶部补充 import ---
+import pyarrow.csv as pv
+import pyarrow as pa
+import gc
+
+
+# --- 替换原有的 load_iot23_data 函数 ---
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
 
     if os.path.exists(file_path):
         print(f"Loading IoT-23 data from {file_path}...")
+        print("Using PyArrow for multi-threaded high-performance reading...")
 
-        # === 核心修改：增加 nrows 限制读取行数 ===
-        # 3.25亿数据全部读入会导致内存溢出和计算极慢。
-        # 建议读取 200万 到 500万 条数据进行实验，这对于验证 FL 算法已经足够了。
-        # 如果你确实想跑全量，请去掉 nrows 参数，但请确保你有 64GB 以上内存。
         try:
-            df = pd.read_csv(file_path, nrows=5000000)
-            print(f"Successfully loaded top {len(df)} samples for training.")
+            # 1. 使用 PyArrow 多线程读取
+            # read_options: 配置多线程
+            # convert_options: 可以在读取时直接指定列类型（可选，这里我们在后续处理）
+            table = pv.read_csv(
+                file_path,
+                read_options=pv.ReadOptions(use_threads=True),  # 启用多线程
+                parse_options=pv.ParseOptions(delimiter=',')
+            )
+
+            print(f"  - CSV Parsed. Shape: {table.shape}")
+
+            # 2. 转换为 Pandas (开启 self_destruct 以节省内存)
+            # split_blocks=True 允许 PyArrow 并行转换
+            df = table.to_pandas(self_destruct=True, split_blocks=True)
+
+            # 手动释放 Arrow table 内存
+            del table
+            gc.collect()
+
+            print("  - Converted to Pandas DataFrame.")
+
+            # 3. 提取特征和标签
+            # 假设最后一列是 Label
+            X = df.iloc[:, :-1].values
+            y = df.iloc[:, -1].values
+
+            # 释放 DataFrame 内存
+            del df
+            gc.collect()
+
+            # 4. 内存优化与类型转换
+            print("  - Optimizing memory types...")
+            X = X.astype(np.float32)  # 3.25亿 * 10 * 4 bytes ≈ 13 GB
+            y = y.astype(np.int64)  # PyTorch CrossEntropyLoss 需要 LongTensor (int64)
+
+            # 5. 归一化 (StandardScaler)
+            # 注意：如果内存不足，这里可能会炸。
+            # 3.25亿数据做 fit_transform 需要额外的内存计算均值方差。
+            print("  - Normalizing features (StandardScaler)...")
+            try:
+                scaler = StandardScaler()
+                X = scaler.fit_transform(X)
+            except np.core._exceptions.MemoryError:
+                print("⚠️ 内存不足，无法进行全局归一化！尝试分块归一化...")
+                # 分块归一化逻辑 (Partial Fit)
+                scaler = StandardScaler()
+                chunk_size = 10000000  # 1000万一批
+                for i in range(0, len(X), chunk_size):
+                    scaler.partial_fit(X[i:i + chunk_size])
+
+                # Transform 也可以分块做，或者原地修改
+                for i in range(0, len(X), chunk_size):
+                    X[i:i + chunk_size] = scaler.transform(X[i:i + chunk_size])
+
+            print(f"✅ Data loaded successfully. Shape: {X.shape}")
+
         except Exception as e:
-            print(f"Error reading CSV: {e}")
-            return None, None
-
-        # 1. 提取特征和标签
-        X = df.iloc[:, :-1].values
-        y = df.iloc[:, -1].values
-
-        # 2. 标签编码
-        # 确保标签在 0-4 之间
-        y = y.astype(int)
-        unique_labels = np.unique(y)
-        print(f"Classes found: {unique_labels}")
-
-        # 3. 特征归一化 (StandardScaler)
-        # 对于 MLP 极其重要
-        print("Normalizing features...")
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X)
-
-        # 4. 转为 float32 节省内存
-        X = X.astype(np.float32)
-        y = y.astype(np.int64)
+            print(f"❌ Error loading data: {e}")
+            # 如果 PyArrow 失败，回退到 Pandas 读取一部分用于测试
+            print("Fallback: Reading first 1M rows with standard Pandas...")
+            df = pd.read_csv(file_path, nrows=1000000)
+            X = df.iloc[:, :-1].values.astype(np.float32)
+            y = df.iloc[:, -1].values.astype(np.int64)
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
 
     else:
-        # 模拟数据 fallback (也改为 10 维)
         print(f"Warning: {file_path} not found. Generating synthetic data.")
-        X = np.random.randn(10000, 10).astype(np.float32)  # <--- 改为 10
-        y = np.random.randint(0, 5, size=(10000,))
+        X = np.random.randn(10000, 10).astype(np.float32)
+        y = np.random.randint(0, 5, size=(10000,)).astype(np.int64)
 
     return X, y
 class GoogleSpeechWrapper(Dataset):

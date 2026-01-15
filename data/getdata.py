@@ -5,6 +5,10 @@ import torchaudio
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset
 import numpy as np
+import pyarrow.csv as pv
+import pyarrow as pa
+import gc
+
 
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -27,7 +31,6 @@ class IoT23Dataset(Dataset):
 
     def __len__(self):
         return len(self.features)
-
 
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')

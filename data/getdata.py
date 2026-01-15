@@ -35,87 +35,121 @@ import pyarrow as pa
 import gc
 
 
-# --- 替换原有的 load_iot23_data 函数 ---
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
 
+    # === 配置采样策略 ===
+    # 多数类：限制最大样本数 (例如每类最多 20万 或 50万)
+    # 少数类：全部保留
+    # 你的数据分布：
+    # 0 (Benign): 91M -> 限制到 500k
+    # 1 (DDoS):   19M -> 限制到 500k
+    # 2 (PortScan): 213M -> 限制到 500k
+    # 3 (C&C):    56k -> 全部保留
+    # 4 (Malware): 9k -> 全部保留
+    LIMIT_PER_CLASS = 500000
+
     if os.path.exists(file_path):
-        print(f"Loading IoT-23 data from {file_path}...")
-        print("Using PyArrow for multi-threaded high-performance reading...")
+        print(f"Loading IoT-23 data from {file_path} with Balanced Sampling...")
+        print(f"  Strategy: Max {LIMIT_PER_CLASS} samples per class.")
+
+        # 1. 初始化容器
+        dfs = []
+        class_counts = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        total_kept = 0
 
         try:
-            # 1. 使用 PyArrow 多线程读取
-            # read_options: 配置多线程
-            # convert_options: 可以在读取时直接指定列类型（可选，这里我们在后续处理）
-            table = pv.read_csv(
+            # 2. 打开 CSV 流 (Stream)
+            reader = pv.open_csv(
                 file_path,
-                read_options=pv.ReadOptions(use_threads=True),  # 启用多线程
-                parse_options=pv.ParseOptions(delimiter=',')
+                read_options=pv.ReadOptions(use_threads=True, block_size=10 * 1024 * 1024)  # 10MB chunk
             )
 
-            print(f"  - CSV Parsed. Shape: {table.shape}")
+            # 3. 分块读取并过滤
+            for chunk in reader:
+                # 转为 Pandas 以便筛选
+                df_chunk = chunk.to_pandas()
 
-            # 2. 转换为 Pandas (开启 self_destruct 以节省内存)
-            # split_blocks=True 允许 PyArrow 并行转换
-            df = table.to_pandas(self_destruct=True, split_blocks=True)
+                # 假设 label 是最后一列 (根据之前的脚本，列名是 'label')
+                # 即使之前转成了 int，读取时 pyarrow 可能会根据 header 识别
+                if 'label' not in df_chunk.columns:
+                    # 兼容旧逻辑：如果最后一列是 label 但名字不对
+                    df_chunk.rename(columns={df_chunk.columns[-1]: 'label'}, inplace=True)
 
-            # 手动释放 Arrow table 内存
-            del table
-            gc.collect()
+                filtered_rows = []
 
-            print("  - Converted to Pandas DataFrame.")
+                # 按类别分组筛选
+                # 这一步虽然在 Python 层做，但因为是分块处理，内存很安全
+                for cls_id in [0, 1, 2, 3, 4]:
+                    # 如果该类已经攒够了，就跳过
+                    if class_counts[cls_id] >= LIMIT_PER_CLASS:
+                        continue
 
-            # 3. 提取特征和标签
-            # 假设最后一列是 Label
-            X = df.iloc[:, :-1].values
-            y = df.iloc[:, -1].values
+                    # 选出当前 chunk 里该类的样本
+                    df_cls = df_chunk[df_chunk['label'] == cls_id]
 
-            # 释放 DataFrame 内存
-            del df
-            gc.collect()
+                    if not df_cls.empty:
+                        # 计算还需要多少
+                        needed = LIMIT_PER_CLASS - class_counts[cls_id]
+                        # 如果当前 chunk 的样本多于需要的，就截断
+                        if len(df_cls) > needed:
+                            df_cls = df_cls.iloc[:needed]
 
-            # 4. 内存优化与类型转换
-            print("  - Optimizing memory types...")
-            X = X.astype(np.float32)  # 3.25亿 * 10 * 4 bytes ≈ 13 GB
-            y = y.astype(np.int64)  # PyTorch CrossEntropyLoss 需要 LongTensor (int64)
+                        filtered_rows.append(df_cls)
+                        class_counts[cls_id] += len(df_cls)
 
-            # 5. 归一化 (StandardScaler)
-            # 注意：如果内存不足，这里可能会炸。
-            # 3.25亿数据做 fit_transform 需要额外的内存计算均值方差。
-            print("  - Normalizing features (StandardScaler)...")
-            try:
-                scaler = StandardScaler()
-                X = scaler.fit_transform(X)
-            except np.core._exceptions.MemoryError:
-                print("⚠️ 内存不足，无法进行全局归一化！尝试分块归一化...")
-                # 分块归一化逻辑 (Partial Fit)
-                scaler = StandardScaler()
-                chunk_size = 10000000  # 1000万一批
-                for i in range(0, len(X), chunk_size):
-                    scaler.partial_fit(X[i:i + chunk_size])
+                if filtered_rows:
+                    dfs.append(pd.concat(filtered_rows))
 
-                # Transform 也可以分块做，或者原地修改
-                for i in range(0, len(X), chunk_size):
-                    X[i:i + chunk_size] = scaler.transform(X[i:i + chunk_size])
+                # 检查是否所有类都满了 (针对多数类，少数类肯定不满，所以通常会读完整个文件)
+                # 优化：如果 0,1,2 都满了，其实可以加速跳过，但为了拿到所有的 3和4，必须读完
+                if class_counts[0] >= LIMIT_PER_CLASS and \
+                        class_counts[1] >= LIMIT_PER_CLASS and \
+                        class_counts[2] >= LIMIT_PER_CLASS:
+                    # 此时只关心 3 和 4
+                    pass
 
-            print(f"✅ Data loaded successfully. Shape: {X.shape}")
+                    # 打印进度 (每攒够 10万条打印一次)
+                current_total = sum(class_counts.values())
+                if current_total - total_kept > 100000:
+                    print(f"  Collecting... {class_counts}")
+                    total_kept = current_total
 
-        except Exception as e:
-            print(f"❌ Error loading data: {e}")
-            # 如果 PyArrow 失败，回退到 Pandas 读取一部分用于测试
-            print("Fallback: Reading first 1M rows with standard Pandas...")
-            df = pd.read_csv(file_path, nrows=1000000)
-            X = df.iloc[:, :-1].values.astype(np.float32)
-            y = df.iloc[:, -1].values.astype(np.int64)
+            # 4. 合并所有数据
+            if not dfs:
+                print("❌ No data found!")
+                return None, None
+
+            full_df = pd.concat(dfs)
+            print(f"✅ Sampling Done! Final Stats: {class_counts}")
+            print(f"  Total samples: {len(full_df)}")
+
+            # 5. 提取与归一化
+            X = full_df.iloc[:, :-1].values.astype(np.float32)
+            y = full_df['label'].values.astype(np.int64)
+
+            # 释放内存
+            del full_df, dfs
+
+            print("  Normalizing features...")
             scaler = StandardScaler()
             X = scaler.fit_transform(X)
 
+            return X, y
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
+
     else:
+        # Fallback 模拟数据
         print(f"Warning: {file_path} not found. Generating synthetic data.")
         X = np.random.randn(10000, 10).astype(np.float32)
         y = np.random.randint(0, 5, size=(10000,)).astype(np.int64)
+        return X, y
 
-    return X, y
 class GoogleSpeechWrapper(Dataset):
     def __init__(self, root, subset, transform=None):
         """

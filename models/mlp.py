@@ -7,47 +7,37 @@ class IoT23_MLP(nn.Module):
     def __init__(self, input_dim=10, num_classes=5):
         super(IoT23_MLP, self).__init__()
 
-        # Layer 1
-        self.layer1 = nn.Linear(input_dim, 64)
-        # 修改：使用 GroupNorm (将 64 个通道分成 8 组进行归一化)
-        # 或者直接注释掉 BatchNorm 也可以
-        self.gn1 = nn.GroupNorm(8, 64)
+        # 加宽网络： 64 -> 256
+        self.layer1 = nn.Linear(input_dim, 256)
+        self.gn1 = nn.GroupNorm(32, 256)  # GroupNorm
 
-        # Layer 2
-        self.layer2 = nn.Linear(64, 128)
-        self.gn2 = nn.GroupNorm(16, 128)
+        self.layer2 = nn.Linear(256, 512)  # 中间层加宽到 512
+        self.gn2 = nn.GroupNorm(64, 512)
 
-        # Layer 3
-        self.layer3 = nn.Linear(128, 64)
-        self.gn3 = nn.GroupNorm(8, 64)
+        self.layer3 = nn.Linear(512, 256)
+        self.gn3 = nn.GroupNorm(32, 256)
 
-        self.classifier = nn.Linear(64, num_classes)
+        self.layer4 = nn.Linear(256, 128)  # 增加一层
+        self.gn4 = nn.GroupNorm(16, 128)
+
+        self.classifier = nn.Linear(128, num_classes)
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
-        if x.dim() > 2:
-            x = x.view(x.size(0), -1)
+        if x.dim() > 2: x = x.view(x.size(0), -1)
 
-        # Layer 1
-        x = self.layer1(x)
-        x = self.gn1(x)  # 使用 GroupNorm
-        x = F.relu(x)
+        x = F.relu(self.gn1(self.layer1(x)))
         x = self.dropout(x)
 
-        # Layer 2
-        x = self.layer2(x)
-        x = self.gn2(x)  # 使用 GroupNorm
-        x = F.relu(x)
+        x = F.relu(self.gn2(self.layer2(x)))
         x = self.dropout(x)
 
-        # Layer 3
-        x = self.layer3(x)
-        x = self.gn3(x)  # 使用 GroupNorm
-        x = F.relu(x)
+        x = F.relu(self.gn3(self.layer3(x)))
+        x = self.dropout(x)
 
-        out = self.classifier(x)
-        return out
+        x = F.relu(self.gn4(self.layer4(x)))
 
+        return self.classifier(x)
 
 if __name__ == '__main__':
     # 测试模型结构

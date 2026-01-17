@@ -516,31 +516,55 @@ class Server:
         }
 
     def test_model(self):
-        print("开始模型测试 (正在加载数据，这可能需要几十秒...)")
+        print("开始模型测试...")
         self.global_model.eval()
         test_loss = 0
         correct = 0
         total = 0
 
-        # === 修改 2：添加进度提示 ===
-        total_batches = len(self.test_loader)
+        # === 新增：每类的统计 ===
+        class_correct = list(0. for i in range(5))
+        class_total = list(0. for i in range(5))
+
+        # 你的 5 个类别名称
+        classes = ['Benign', 'DDoS', 'PortScan', 'C&C', 'Malware']
 
         with torch.no_grad():
-            for i, (data, target) in enumerate(self.test_loader):
-                # 每 10 个 batch 打印一次，证明程序还活着
-                if i % 10 == 0:
-                    print(f"  [Testing] Batch {i}/{total_batches}...", end='\r')
-
+            for data, target in self.test_loader:
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.global_model(data)
                 test_loss += nn.CrossEntropyLoss()(output, target).item()
+
+                # 获取预测结果
                 pred = output.argmax(dim=1, keepdim=True)
                 correct += pred.eq(target.view_as(pred)).sum().item()
                 total += target.size(0)
 
-        print(f"  [Testing] 完成! 计算统计数据...              ")  # 清除上面的进度行
+                # === 新增：统计每类的正确率 ===
+                # 注意：target 是 batch 形式，需要把 pred 和 target 转平
+                c = (pred.squeeze() == target.squeeze()).squeeze()
+
+                # 处理最后一个 batch 可能只有一个样本的情况
+                if c.ndim == 0:
+                    c = c.unsqueeze(0)
+                    target = target.unsqueeze(0)
+
+                for i in range(len(target)):
+                    label = target[i].item()
+                    if label < 5:  # 防止越界
+                        class_correct[label] += c[i].item()
+                        class_total[label] += 1
 
         avg_loss = test_loss / len(self.test_loader)
         accuracy = 100. * correct / total
-        print(f"测试结果 | 损失: {avg_loss:.4f} | 准确率: {accuracy:.2f}%")
+
+        print(f"\n测试结果 | 总Loss: {avg_loss:.4f} | 总Acc: {accuracy:.2f}%")
+        print("-" * 40)
+        for i in range(5):
+            if class_total[i] > 0:
+                print(f"类别 {i} ({classes[i]:<8}) : {100 * class_correct[i] / class_total[i]:.2f}%")
+            else:
+                print(f"类别 {i} ({classes[i]:<8}) : 无样本")
+        print("-" * 40)
+
         return {'loss': avg_loss, 'accuracy': accuracy}

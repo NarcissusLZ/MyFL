@@ -194,6 +194,20 @@ class Server:
             elif dataset_name == 'imagenet':
                 return ImageNet_ResNet50(num_classes=1000)
 
+
+        elif model_name == 'RESNET':  # 即使配置名字叫 MLP，我们也可以偷换成 ResNet
+
+            # from models.mlp import IoT23_MLP
+
+            # 替换为新模型的 import
+
+            from models.resnet_iot import IoT23_ResNet
+
+            if dataset_name == 'iot23':
+                # 隐藏层维度 128 或 256 都可以
+
+                return IoT23_ResNet(input_dim=10, num_classes=5, hidden_dim=128)
+
         elif model_name == 'MLP':
             from models.mlp import IoT23_MLP
             if dataset_name == 'iot23':

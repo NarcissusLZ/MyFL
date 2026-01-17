@@ -32,118 +32,31 @@ class IoT23Dataset(Dataset):
     def __len__(self):
         return len(self.features)
 
+
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
 
-    # === 配置采样策略 ===
-    # 你的数据分布已更新：
-    # 2 (PortScan): 213M (多数)
-    # 4 (Malware):  61M  (多数) -> 必须限制！
-    # 0 (Benign):   30M  (多数)
-    # 1 (DDoS):     19M  (多数)
-    # 3 (C&C):      56k  (少数) -> 全部保留
+    if not os.path.exists(file_path):
+        print("CSV not found!")
+        return None, None
 
-    # 建议：每类最多 20万，这样总数据量约 85万 (4*20w + 5.6w)
-    # 既能保证训练速度，又能保证有足够的特征，且相对平衡。
-    # 如果服务器性能强，可以设为 500000 (总数约 205万)
-    LIMIT_PER_CLASS = 5000
+    print(f"Loading pre-sampled data from {file_path}...")
 
-    if os.path.exists(file_path):
-        print(f"Loading IoT-23 data from {file_path} with Balanced Sampling...")
-        print(f"  Strategy: Max {LIMIT_PER_CLASS} samples per class.")
+    # 因为 iot_23.py 已经做过采样了，这里直接全读即可，速度很快
+    df = pd.read_csv(file_path)
 
-        # 1. 初始化容器
-        dfs = []
-        class_counts = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
-        total_kept = 0
+    # 提取特征和标签
+    X = df.iloc[:, :-1].values.astype(np.float32)
+    y = df['label'].values.astype(np.int64)
 
-        try:
-            # 2. 打开 CSV 流 (Stream)
-            reader = pv.open_csv(
-                file_path,
-                read_options=pv.ReadOptions(use_threads=True, block_size=10 * 1024 * 1024)
-            )
+    print(f"Data loaded. Shape: {X.shape}. Class stats: {np.unique(y, return_counts=True)}")
 
-            # 3. 分块读取并过滤
-            for chunk in reader:
-                df_chunk = chunk.to_pandas()
+    # 归一化
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
 
-                if 'label' not in df_chunk.columns:
-                    df_chunk.rename(columns={df_chunk.columns[-1]: 'label'}, inplace=True)
-
-                filtered_rows = []
-
-                # 按类别分组筛选
-                for cls_id in [0, 1, 2, 3, 4]:
-                    # 如果该类已经攒够了，就跳过
-                    if class_counts[cls_id] >= LIMIT_PER_CLASS:
-                        continue
-
-                    # 选出当前 chunk 里该类的样本
-                    df_cls = df_chunk[df_chunk['label'] == cls_id]
-
-                    if not df_cls.empty:
-                        needed = LIMIT_PER_CLASS - class_counts[cls_id]
-                        if len(df_cls) > needed:
-                            df_cls = df_cls.iloc[:needed]
-
-                        filtered_rows.append(df_cls)
-                        class_counts[cls_id] += len(df_cls)
-
-                if filtered_rows:
-                    dfs.append(pd.concat(filtered_rows))
-
-                # === 优化逻辑修改 ===
-                # 只有当所有的“多数类” (0, 1, 2, 4) 都满了，我们才只关注 3
-                # 但因为 3 (C&C) 极其稀有且分布在整个文件中，
-                # 我们实际上还是得读完整个文件来寻找 Class 3。
-                # 这里的判断主要用于控制台打印，告知用户哪些类已经满了。
-                if class_counts[0] >= LIMIT_PER_CLASS and \
-                   class_counts[1] >= LIMIT_PER_CLASS and \
-                   class_counts[2] >= LIMIT_PER_CLASS and \
-                   class_counts[4] >= LIMIT_PER_CLASS:
-                    # 此时 0,1,2,4 都满了，脚本正在全力搜索 Class 3
-                    pass
-
-                # 打印进度
-                current_total = sum(class_counts.values())
-                if current_total - total_kept > 50000: # 每收集5万条打印一次
-                    print(f"  Collecting... {class_counts}")
-                    total_kept = current_total
-
-            # 4. 合并所有数据
-            if not dfs:
-                print("❌ No data found!")
-                return None, None
-
-            full_df = pd.concat(dfs)
-            print(f"✅ Sampling Done! Final Stats: {class_counts}")
-            print(f"  Total samples: {len(full_df)}")
-
-            # 5. 提取与归一化
-            X = full_df.iloc[:, :-1].values.astype(np.float32)
-            y = full_df['label'].values.astype(np.int64)
-
-            del full_df, dfs
-
-            print("  Normalizing features...")
-            scaler = StandardScaler()
-            X = scaler.fit_transform(X)
-
-            return X, y
-
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return None, None
-
-    else:
-        # Fallback 模拟数据
-        print(f"Warning: {file_path} not found. Generating synthetic data.")
-        X = np.random.randn(10000, 10).astype(np.float32)
-        y = np.random.randint(0, 5, size=(10000,)).astype(np.int64)
-        return X, y
+    return X, y
 
 class GoogleSpeechWrapper(Dataset):
     def __init__(self, root, subset, transform=None):

@@ -46,7 +46,7 @@ def load_iot23_data(root_dir):
     # 建议：每类最多 20万，这样总数据量约 85万 (4*20w + 5.6w)
     # 既能保证训练速度，又能保证有足够的特征，且相对平衡。
     # 如果服务器性能强，可以设为 500000 (总数约 205万)
-    LIMIT_PER_CLASS = 10000
+    LIMIT_PER_CLASS = 5000
 
     if os.path.exists(file_path):
         print(f"Loading IoT-23 data from {file_path} with Balanced Sampling...")

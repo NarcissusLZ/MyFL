@@ -6,32 +6,33 @@ import torch.nn.functional as F
 
 
 # ==========================================
-# Part 1: Audio / 2D Image Models (Original)
+# Part 1: Audio / 2D Image Models (GroupNorm Version)
 # ==========================================
 
 class BlockV1(nn.Module):
-    '''Depthwise conv + Pointwise conv'''
+    '''Depthwise conv + Pointwise conv (with GroupNorm)'''
 
     def __init__(self, in_planes, out_planes, stride=1):
         super(BlockV1, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=in_planes,
                                bias=False)
-        self.bn1 = nn.BatchNorm2d(in_planes)
+        # 替换 BN 为 GN，设定 groups=8
+        self.gn1 = nn.GroupNorm(8, in_planes)
         self.conv2 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.gn2 = nn.GroupNorm(8, out_planes)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = F.relu(self.gn1(self.conv1(x)))
+        out = F.relu(self.gn2(self.conv2(out)))
         return out
 
 
 class MobileNetV1_Audio(nn.Module):
     def __init__(self, num_classes=35, input_channels=1):
         super(MobileNetV1_Audio, self).__init__()
-        # 针对 40x81 这样的小尺寸输入，第一层 Stride 设为 1，避免信息丢失过快
+        # 针对 40x81 这样的小尺寸输入
         self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(32)
+        self.gn1 = nn.GroupNorm(8, 32)
 
         # 定义层结构：(输入通道, 输出通道, stride)
         self.layers = self._make_layers(in_planes=32)
@@ -40,7 +41,6 @@ class MobileNetV1_Audio(nn.Module):
 
     def _make_layers(self, in_planes):
         layers = []
-        # 配置格式: (out_planes, stride)
         cfg = [
             (64, 1),
             (128, 2),  # 20x40
@@ -63,7 +63,7 @@ class MobileNetV1_Audio(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.gn1(self.conv1(x)))
         out = self.layers(out)
         out = F.adaptive_avg_pool2d(out, 1)
         out = out.view(out.size(0), -1)
@@ -72,7 +72,7 @@ class MobileNetV1_Audio(nn.Module):
 
 
 class BlockV2(nn.Module):
-    '''Inverted Residual Block'''
+    '''Inverted Residual Block (with GroupNorm)'''
 
     def __init__(self, in_planes, out_planes, expansion, stride):
         super(BlockV2, self).__init__()
@@ -80,23 +80,25 @@ class BlockV2(nn.Module):
 
         planes = expansion * in_planes
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.gn1 = nn.GroupNorm(8, planes)
+
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=planes, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.gn2 = nn.GroupNorm(8, planes)
+
         self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes)
+        self.gn3 = nn.GroupNorm(8, out_planes)
 
         self.shortcut = nn.Sequential()
         if stride == 1 and in_planes != out_planes:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(out_planes),
+                nn.GroupNorm(8, out_planes),
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        out = F.relu(self.gn1(self.conv1(x)))
+        out = F.relu(self.gn2(self.conv2(out)))
+        out = self.gn3(self.conv3(out))
         if self.stride == 1:
             if self.shortcut:
                 out = out + self.shortcut(x)
@@ -110,7 +112,7 @@ class MobileNetV2_Audio(nn.Module):
         super(MobileNetV2_Audio, self).__init__()
         # NOTE: 针对 Log-Mel 40x81 输入的配置
         self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(32)
+        self.gn1 = nn.GroupNorm(8, 32)
 
         # (expansion, out_planes, num_blocks, stride)
         self.cfg = [
@@ -125,7 +127,7 @@ class MobileNetV2_Audio(nn.Module):
 
         self.layers = self._make_layers(in_planes=32)
         self.conv2 = nn.Conv2d(320, 1280, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(1280)
+        self.gn2 = nn.GroupNorm(8, 1280)
         self.linear = nn.Linear(1280, num_classes)
 
     def _make_layers(self, in_planes):
@@ -138,9 +140,9 @@ class MobileNetV2_Audio(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.gn1(self.conv1(x)))
         out = self.layers(out)
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = F.relu(self.gn2(self.conv2(out)))
         out = F.adaptive_avg_pool2d(out, 1)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
@@ -148,50 +150,46 @@ class MobileNetV2_Audio(nn.Module):
 
 
 # ==========================================
-# Part 2: IoT-23 / 1D Tabular Models (New)
+# Part 2: IoT-23 / 1D Tabular Models (GroupNorm Version)
 # ==========================================
 
 class BlockV1_1D(nn.Module):
-    '''Depthwise conv + Pointwise conv (1D version for Tabular Data)'''
+    '''Depthwise conv + Pointwise conv (1D version with GroupNorm)'''
 
     def __init__(self, in_planes, out_planes, stride=1):
         super(BlockV1_1D, self).__init__()
         # 使用 Conv1d 处理序列特征
         self.conv1 = nn.Conv1d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=in_planes,
                                bias=False)
-        self.bn1 = nn.BatchNorm1d(in_planes)
+        # GN 同样适用于 1D 数据 (N, C, L)
+        self.gn1 = nn.GroupNorm(8, in_planes)
         self.conv2 = nn.Conv1d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm1d(out_planes)
+        self.gn2 = nn.GroupNorm(8, out_planes)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = F.relu(self.gn1(self.conv1(x)))
+        out = F.relu(self.gn2(self.conv2(out)))
         return out
 
 
 class MobileNetV1_IoT23(nn.Module):
-    '''Adapted MobileNet V1 for low-dimensional tabular data (e.g. 10 features)'''
+    '''Adapted MobileNet V1 for low-dimensional tabular data (with GroupNorm)'''
 
     def __init__(self, num_classes=5, input_dim=10):
         super(MobileNetV1_IoT23, self).__init__()
 
-        # 输入维度: (Batch, 1, InputDim)
         self.input_dim = input_dim
 
         # Stem Layer: 1通道 -> 32通道
         self.conv1 = nn.Conv1d(1, 32, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(32)
+        self.gn1 = nn.GroupNorm(8, 32)
 
-        # 定义 1D 网络结构
-        # 注意：由于 input_dim 很小 (10)，我们不能使用太多的 stride=2，
-        # 否则特征维度会迅速变为 1 或 0 导致报错。
         self.layers = self._make_layers(in_planes=32)
 
         self.linear = nn.Linear(512, num_classes)
 
     def _make_layers(self, in_planes):
         layers = []
-        # (out_planes, stride)
         cfg = [
             (64, 1),
             (128, 2),  # 10 -> 5
@@ -201,7 +199,6 @@ class MobileNetV1_IoT23(nn.Module):
             (512, 2),  # 5 -> 3
             (512, 1),
             (512, 1),
-            # 这里的层数比标准版少，防止过拟合和特征消失
         ]
 
         for out_planes, stride in cfg:
@@ -214,10 +211,9 @@ class MobileNetV1_IoT23(nn.Module):
         if x.dim() == 2:
             x = x.unsqueeze(1)
 
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.gn1(self.conv1(x)))
         out = self.layers(out)
 
-        # Global Average Pooling (1D)
         out = F.adaptive_avg_pool1d(out, 1)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
@@ -225,7 +221,7 @@ class MobileNetV1_IoT23(nn.Module):
 
 
 class BlockV2_1D(nn.Module):
-    '''Inverted Residual Block (1D version)'''
+    '''Inverted Residual Block (1D version with GroupNorm)'''
 
     def __init__(self, in_planes, out_planes, expansion, stride):
         super(BlockV2_1D, self).__init__()
@@ -234,25 +230,25 @@ class BlockV2_1D(nn.Module):
 
         # 1x1 升维
         self.conv1 = nn.Conv1d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm1d(planes)
+        self.gn1 = nn.GroupNorm(8, planes)
         # 3x3 深度卷积
         self.conv2 = nn.Conv1d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=planes, bias=False)
-        self.bn2 = nn.BatchNorm1d(planes)
+        self.gn2 = nn.GroupNorm(8, planes)
         # 1x1 降维
         self.conv3 = nn.Conv1d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm1d(out_planes)
+        self.gn3 = nn.GroupNorm(8, out_planes)
 
         self.shortcut = nn.Sequential()
         if stride == 1 and in_planes != out_planes:
             self.shortcut = nn.Sequential(
                 nn.Conv1d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm1d(out_planes),
+                nn.GroupNorm(8, out_planes),
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        out = F.relu(self.gn1(self.conv1(x)))
+        out = F.relu(self.gn2(self.conv2(out)))
+        out = self.gn3(self.conv3(out))
         if self.stride == 1:
             if self.shortcut:
                 out = out + self.shortcut(x)
@@ -262,7 +258,7 @@ class BlockV2_1D(nn.Module):
 
 
 class MobileNetV2_IoT23(nn.Module):
-    '''Adapted MobileNet V2 for low-dimensional tabular data'''
+    '''Adapted MobileNet V2 for low-dimensional tabular data (with GroupNorm)'''
 
     def __init__(self, num_classes=5, input_dim=10):
         super(MobileNetV2_IoT23, self).__init__()
@@ -270,10 +266,9 @@ class MobileNetV2_IoT23(nn.Module):
         self.input_dim = input_dim
         # Stem
         self.conv1 = nn.Conv1d(1, 32, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(32)
+        self.gn1 = nn.GroupNorm(8, 32)
 
         # Config: (expansion, out_planes, num_blocks, stride)
-        # 针对 Input Dim = 10 的简化版配置
         self.cfg = [
             (1, 16, 1, 1),
             (6, 24, 2, 1),
@@ -288,7 +283,7 @@ class MobileNetV2_IoT23(nn.Module):
 
         # Final head
         self.conv2 = nn.Conv1d(320, 1280, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm1d(1280)
+        self.gn2 = nn.GroupNorm(8, 1280)
         self.linear = nn.Linear(1280, num_classes)
 
     def _make_layers(self, in_planes):
@@ -305,9 +300,9 @@ class MobileNetV2_IoT23(nn.Module):
         if x.dim() == 2:
             x = x.unsqueeze(1)
 
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.gn1(self.conv1(x)))
         out = self.layers(out)
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = F.relu(self.gn2(self.conv2(out)))
 
         out = F.adaptive_avg_pool1d(out, 1)
         out = out.view(out.size(0), -1)

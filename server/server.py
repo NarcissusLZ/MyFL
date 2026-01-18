@@ -522,12 +522,38 @@ class Server:
         correct = 0
         total = 0
 
-        # === 新增：每类的统计 ===
-        class_correct = list(0. for i in range(5))
-        class_total = list(0. for i in range(5))
+        # === 动态确定类别数量与名称 ===
+        dataset_name = self.config.get('dataset', 'cifar10').lower()
 
-        # 你的 5 个类别名称
-        classes = ['Benign', 'DDoS', 'PortScan', 'C&C', 'Malware']
+        # 预定义常见数据集标签
+        if dataset_name == 'cifar10':
+            num_classes = 10
+            classes = ['Plane', 'Car', 'Bird', 'Cat', 'Deer', 'Dog', 'Frog', 'Horse', 'Ship', 'Truck']
+        elif dataset_name == 'cifar100':
+            num_classes = 100
+            classes = [str(i) for i in range(100)]
+        elif 'googlespeech' in dataset_name:
+            num_classes = 35
+            # Google Speech Commands V2 (35类)
+            classes = [str(i) for i in range(35)]
+        elif 'iot23' in dataset_name:
+            num_classes = 5
+            classes = ['Benign', 'DDoS', 'PortScan', 'C&C', 'Malware']
+        elif 'imagenet' in dataset_name:
+            num_classes = 1000
+            classes = [str(i) for i in range(1000)]
+        else:
+            # 尝试通过模型最后一层推断，若无法推断则默认 10
+            num_classes = 10
+            if hasattr(self.global_model, 'linear'):
+                num_classes = self.global_model.linear.out_features
+            elif hasattr(self.global_model, 'fc'):
+                num_classes = self.global_model.fc.out_features
+            classes = [f"Class_{i}" for i in range(num_classes)]
+            print(f"提示: 未知数据集 {dataset_name}, 自动推断为 {num_classes} 类")
+
+        class_correct = [0.0] * num_classes
+        class_total = [0.0] * num_classes
 
         with torch.no_grad():
             for data, target in self.test_loader:
@@ -540,31 +566,54 @@ class Server:
                 correct += pred.eq(target.view_as(pred)).sum().item()
                 total += target.size(0)
 
-                # === 新增：统计每类的正确率 ===
-                # 注意：target 是 batch 形式，需要把 pred 和 target 转平
-                c = (pred.squeeze() == target.squeeze()).squeeze()
+                # === 统计每类的正确率 ===
+                # 将 target 和 pred 转为 1D 列表以便遍历统计
+                t_flat = target.view(-1)
+                p_flat = pred.view(-1)
 
-                # 处理最后一个 batch 可能只有一个样本的情况
-                if c.ndim == 0:
-                    c = c.unsqueeze(0)
-                    target = target.unsqueeze(0)
-
-                for i in range(len(target)):
-                    label = target[i].item()
-                    if label < 5:  # 防止越界
-                        class_correct[label] += c[i].item()
+                for i in range(len(t_flat)):
+                    label = t_flat[i].item()
+                    if 0 <= label < num_classes:
                         class_total[label] += 1
+                        if t_flat[i] == p_flat[i]:
+                            class_correct[label] += 1
 
-        avg_loss = test_loss / len(self.test_loader)
-        accuracy = 100. * correct / total
+        avg_loss = 0.0
+        accuracy = 0.0
+        if len(self.test_loader) > 0 and total > 0:
+            avg_loss = test_loss / len(self.test_loader)
+            accuracy = 100. * correct / total
 
-        print(f"\n测试结果 | 总Loss: {avg_loss:.4f} | 总Acc: {accuracy:.2f}%")
-        print("-" * 40)
-        for i in range(5):
+        print(
+            f"\n测试结果 | Dataset: {dataset_name} | 总Loss: {avg_loss:.4f} | 总Acc: {accuracy:.2f}% | 总样本数: {total}")
+        print("-" * 75)
+        print(f"{'ID':<4} | {'类别名称':<12} | {'准确率':<10} | {'样本数':<8} | {'占比 (分布)':<12}")
+        print("-" * 75)
+
+        printed_count = 0
+        for i in range(num_classes):
             if class_total[i] > 0:
-                print(f"类别 {i} ({classes[i]:<8}) : {100 * class_correct[i] / class_total[i]:.2f}%")
+                acc_rate = 100 * class_correct[i] / class_total[i]
+                # 计算该类样本占总测试集样本的比例
+                dist_rate = 100 * class_total[i] / total
+
+                cls_name = classes[i] if i < len(classes) else str(i)
+                # 截断过长名称
+                if len(cls_name) > 12: cls_name = cls_name[:10] + ".."
+
+                print(f"{i:<4} | {cls_name:<12} | {acc_rate:6.2f}%    | {int(class_total[i]):<8} | {dist_rate:6.2f}%")
+                printed_count += 1
             else:
-                print(f"类别 {i} ({classes[i]:<8}) : 无样本")
-        print("-" * 40)
+                # 只有当样本数很少时才打印空类别，避免很多空类刷屏
+                if num_classes <= 10:
+                    cls_name = classes[i] if i < len(classes) else str(i)
+                    print(f"{i:<4} | {cls_name:<12} | {'N/A':<10} | {0:<8} | 0.00%")
+
+            # 防止 CIFAR100/ImageNet 刷屏，限制显示行数 (比如显示前 50 个非空类别)
+            if printed_count > 50:
+                print(f"... (剩余 {num_classes - i - 1} 个类别已省略) ...")
+                break
+
+        print("-" * 75)
 
         return {'loss': avg_loss, 'accuracy': accuracy}

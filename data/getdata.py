@@ -253,4 +253,29 @@ def get_dataset(dir, name):
     else:
         raise ValueError(f"Unknown dataset name: {name}")
 
+    # --- 新增：打印训练集与测试集的详细分布信息 ---
+    def print_class_distribution(dataset, title):
+        print(f"\n[{title}] Distribution Info:")
+        if hasattr(dataset, 'targets'):
+            # 处理 Tensor 或 list 类型的 targets
+            targets = dataset.targets
+            if isinstance(targets, torch.Tensor):
+                targets = targets.numpy()
+            else:
+                targets = np.array(targets)
+
+            total_count = len(targets)
+            unique, counts = np.unique(targets, return_counts=True)
+
+            for u, c in zip(unique, counts):
+                print(f"  Class {u}: {c:<5} ({c/total_count:.2%})")
+            print(f"  Total: {total_count}")
+        else:
+            print("  (Cannot retrieve .targets for distribution)")
+
+    print_class_distribution(train_dataset, "Train Dataset")
+    print_class_distribution(eval_dataset, "Test Dataset")
+    # -----------------------------------------------
+
     return train_dataset, eval_dataset
+

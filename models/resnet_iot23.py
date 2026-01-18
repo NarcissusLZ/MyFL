@@ -13,9 +13,6 @@ class BasicBlock1D(nn.Module):
         self.conv2 = nn.Conv1d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.gn2 = nn.GroupNorm(8, planes)
 
-        # 核心修改：增加 Dropout 层来抑制过快拟合，使曲线平滑上升
-        self.dropout = nn.Dropout(p=0.3)
-
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
@@ -28,8 +25,6 @@ class BasicBlock1D(nn.Module):
         out = self.gn2(self.conv2(out))
         out += self.shortcut(x)
         out = F.relu(out)
-        # 在激活后应用 Dropout，增加训练难度，防止准确率瞬间跳升
-        out = self.dropout(out)
         return out
 
 

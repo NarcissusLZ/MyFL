@@ -195,48 +195,34 @@ class Server:
                 return ImageNet_ResNet50(num_classes=1000)
 
 
-        elif model_name == 'RESNET':  # 即使配置名字叫 MLP，我们也可以偷换成 ResNet
-
-            # from models.mlp import IoT23_MLP
-
-            # 替换为新模型的 import
-
-            from models.resnet_iot import IoT23_ResNet
-
-            if dataset_name == 'iot23':
-                # 隐藏层维度 128 或 256 都可以
-
-                return IoT23_ResNet(input_dim=10, num_classes=5, hidden_dim=128)
-
-        elif model_name == 'MLP':
-            from models.mlp import IoT23_MLP
-            if dataset_name == 'iot23':
-                # 注意：这里的 input_dim=16 必须与 getdata.py 中的特征数列数一致
-                # num_classes 根据你的数据集实际类别数设定 (例如 Benign, DDoS, Recon...)
-                # 如果是模拟数据，我们在 getdata 里生成了 5 类
-                return IoT23_MLP(input_dim=10, num_classes=5)
-
-            # 也可以用 MLP 处理 MNIST (input=784)
-            elif dataset_name == 'mnist':
-                return IoT23_MLP(input_dim=784, num_classes=10)
-
         elif model_name == 'MOBILENET_V1':
-            from models.mobilenet_audio import MobileNetV1_Audio
+
+            from models.mobilenet_audio import MobileNetV1_Audio, MobileNetV1_IoT23
+
             if dataset_name == 'googlespeech':
-                 return MobileNetV1_Audio(num_classes=35, input_channels=1)
-            elif dataset_name == 'cifar10':
-                return MobileNetV1_Audio(num_classes=10, input_channels=3)
-            elif dataset_name == 'cifar100':
-                return MobileNetV1_Audio(num_classes=100, input_channels=3)
+
+                return MobileNetV1_Audio(num_classes=35, input_channels=1)
+
+            elif dataset_name == 'iot23':
+
+                # 使用新添加的 1D MobileNet
+
+                return MobileNetV1_IoT23(num_classes=5, input_dim=10)
+
 
         elif model_name == 'MOBILENET_V2':
-            from models.mobilenet_audio import MobileNetV2_Audio
+
+            from models.mobilenet_audio import MobileNetV2_Audio, MobileNetV2_IoT23
+
             if dataset_name == 'googlespeech':
+
                 return MobileNetV2_Audio(num_classes=35, input_channels=1)
-            elif dataset_name == 'cifar10':
-                return MobileNetV2_Audio(num_classes=10, input_channels=3)
-            elif dataset_name == 'cifar100':
-                return MobileNetV2_Audio(num_classes=100, input_channels=3)
+
+            elif dataset_name == 'iot23':
+
+                # 使用新添加的 1D MobileNet
+
+                return MobileNetV2_IoT23(num_classes=5, input_dim=10)
 
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 

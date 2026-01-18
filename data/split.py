@@ -135,4 +135,18 @@ def split_dataset_to_clients(dataset, num_clients, non_iid=False, alpha=0.5, see
         np.random.shuffle(client_idxs[client_id])
         client_data[client_id] = Subset(dataset, client_idxs[client_id])
 
+    # --- 新增：打印每个客户端的数据分布比例 ---
+    print(f"\n[Client Split Distribution] (Mode: {'Non-IID' if non_iid else 'IID'})")
+    for client_id, subset in client_data.items():
+        # 获取该客户端所有样本的标签
+        client_indices = subset.indices
+        client_labels = labels[client_indices] # labels 是函数开头定义的 dataset.targets
+
+        unique_cls, counts = np.unique(client_labels, return_counts=True)
+        total = len(client_labels)
+
+        dist_str = ", ".join([f"C{u}:{c}({c/total:.0%})" for u, c in zip(unique_cls, counts)])
+        print(f"  Client {client_id:<2}: Total {total:<5} | {dist_str}")
+    # ------------------------------------------
+
     return client_data

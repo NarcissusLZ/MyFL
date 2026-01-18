@@ -185,6 +185,11 @@ class Server:
                 return CIFAR100_ResNet18(num_classes=100)
             elif dataset_name == 'googlespeech':
                 return GoogleSpeech_ResNet18(num_classes=35)
+            elif dataset_name == 'iot23':
+                # 调用新创建的 ResNet-1D 模型 (在此处导入以避免未使用的引用)
+                from models.resnet_iot23 import ResNet_IoT23
+                return ResNet_IoT23(num_classes=5, input_dim=10)
+
         elif model_name == 'RESNET50':
             from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50, ImageNet_ResNet50
             if dataset_name == 'cifar10':

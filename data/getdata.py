@@ -35,27 +35,13 @@ class IoT23Dataset(Dataset):
 
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
-
     if not os.path.exists(file_path):
-        print("CSV not found!")
         return None, None
 
-    print(f"Loading pre-sampled data from {file_path}...")
-
-    # 因为 iot_23.py 已经做过采样了，这里直接全读即可，速度很快
+    print(f"Loading data from {file_path}...")
     df = pd.read_csv(file_path)
-
-    # 提取特征和标签
     X = df.iloc[:, :-1].values.astype(np.float32)
     y = df['label'].values.astype(np.int64)
-
-    print(f"Data loaded. Shape: {X.shape}. Class stats: {np.unique(y, return_counts=True)}")
-
-    # 归一化
-    from sklearn.preprocessing import StandardScaler
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X)
-
     return X, y
 
 class GoogleSpeechWrapper(Dataset):
@@ -236,13 +222,32 @@ def get_dataset(dir, name):
         eval_dataset = datasets.ImageFolder(val_dir, transform=transform_test)
 
     elif name == 'iot23':
-        # 加载数据
+
+        # 1. 加载原始数据
+
         X, y = load_iot23_data(dir)
 
-        # 划分训练集和测试集
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        # 2. 先划分训练集和测试集
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y,
+            test_size=0.2,
+            random_state=42,
+            stratify=y  # <--- 关键修改！
+        )
+
+        # 3. 仅在训练集上拟合归一化器 (Fit on Train)
+
+        scaler = StandardScaler()
+
+        X_train = scaler.fit_transform(X_train)
+
+        # 4. 用训练集的参数转换测试集 (Transform Test)
+
+        X_test = scaler.transform(X_test)
 
         train_dataset = IoT23Dataset(X_train, y_train)
+
         eval_dataset = IoT23Dataset(X_test, y_test)
 
     else:

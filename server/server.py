@@ -201,33 +201,27 @@ class Server:
 
 
         elif model_name == 'MOBILENET_V1':
-
             from models.mobilenet_audio import MobileNetV1_Audio, MobileNetV1_IoT23
-
             if dataset_name == 'googlespeech':
-
                 return MobileNetV1_Audio(num_classes=35, input_channels=1)
-
             elif dataset_name == 'iot23':
-
                 # 使用新添加的 1D MobileNet
-
                 return MobileNetV1_IoT23(num_classes=5, input_dim=10)
 
 
         elif model_name == 'MOBILENET_V2':
-
             from models.mobilenet_audio import MobileNetV2_Audio, MobileNetV2_IoT23
-
             if dataset_name == 'googlespeech':
-
                 return MobileNetV2_Audio(num_classes=35, input_channels=1)
-
             elif dataset_name == 'iot23':
-
                 # 使用新添加的 1D MobileNet
-
                 return MobileNetV2_IoT23(num_classes=5, input_dim=10)
+
+        # === 新增: MLP 支持 (IoT-23) ===
+        elif model_name == 'MLP':
+            from models.MLP import MLP_IoT23
+            if dataset_name == 'iot23':
+                return MLP_IoT23(num_classes=5, input_dim=10)
 
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 

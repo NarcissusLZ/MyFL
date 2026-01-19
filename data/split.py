@@ -3,150 +3,100 @@ import torch
 from torch.utils.data import Subset
 
 
-def split_dataset_to_clients(dataset, num_clients, non_iid=False, alpha=0.5, seed=42):
+def split_dataset_to_clients(dataset, num_clients, non_iid=False, alpha=0.5, seed=42, min_require_size=10):
     """
-    将数据集划分给多个客户端
+    将数据集划分给多个客户端 (方案一：基于类别的全局Dirichlet切分)
+    并且在打印时输出所有类别的统计详情（包括数量为0的类别）
     """
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    num_samples = len(dataset)
-    client_data = {}
-    labels = np.array(dataset.targets)
-    num_classes = len(np.unique(labels))
-
-    # 计算每个客户端应得的精确样本数
-    samples_per_client = num_samples // num_clients
-
-    # 所有样本的索引
-    all_idxs = np.arange(num_samples)
-
-    if non_iid:
-        # 非独立同分布划分，严格保证每个客户端数据量相等
-        client_idxs = [[] for _ in range(num_clients)]
-
-        # 按类别对索引进行分组
-        class_idxs = [np.where(labels == i)[0] for i in range(num_classes)]
-
-        # 为每个类别的索引打乱顺序
-        for c in range(num_classes):
-            np.random.shuffle(class_idxs[c])
-
-        # 为每个客户端生成类别分布
-        proportions = np.random.dirichlet(np.repeat(alpha, num_classes), num_clients)
-
-        # 为每个客户端分配数据
-        for client_id in range(num_clients):
-            client_prop = proportions[client_id]
-
-            # 根据客户端的类别偏好，计算每个类别应分配的样本数
-            target_samples_per_class = np.round(client_prop * samples_per_client).astype(int)
-
-            # 严格修正总数，确保与 samples_per_client 完全一致
-            diff = samples_per_client - target_samples_per_class.sum()
-
-            while diff != 0:
-                if diff > 0:
-                    # 需要增加样本，优先给比例高的类别
-                    sorted_indices = np.argsort(-client_prop)
-                    for idx in sorted_indices:
-                        if diff == 0:
-                            break
-                        target_samples_per_class[idx] += 1
-                        diff -= 1
-                else:
-                    # 需要减少样本，优先从数量多的类别减
-                    sorted_indices = np.argsort(-target_samples_per_class)
-                    for idx in sorted_indices:
-                        if diff == 0 or target_samples_per_class[idx] == 0:
-                            break
-                        target_samples_per_class[idx] -= 1
-                        diff += 1
-
-            # 从各类别的池中抽取样本
-            for c in range(num_classes):
-                num_to_take = target_samples_per_class[c]
-
-                if num_to_take > 0:
-                    # 如果该类别样本不足，从其他类别补充
-                    available = len(class_idxs[c])
-
-                    if available >= num_to_take:
-                        taken_idxs = class_idxs[c][:num_to_take]
-                        class_idxs[c] = class_idxs[c][num_to_take:]
-                    else:
-                        # 取完当前类别的所有样本
-                        taken_idxs = class_idxs[c].tolist()
-                        class_idxs[c] = np.array([], dtype=int)
-
-                        # 从其他有剩余样本的类别中补充
-                        shortage = num_to_take - available
-                        for other_c in range(num_classes):
-                            if shortage == 0:
-                                break
-                            if len(class_idxs[other_c]) > 0:
-                                supplement = min(shortage, len(class_idxs[other_c]))
-                                taken_idxs.extend(class_idxs[other_c][:supplement])
-                                class_idxs[other_c] = class_idxs[other_c][supplement:]
-                                shortage -= supplement
-
-                    client_idxs[client_id].extend(taken_idxs)
-
-            # 最终检查：如果还不够，从剩余样本中随机补充
-            current_size = len(client_idxs[client_id])
-            if current_size < samples_per_client:
-                remaining = []
-                for c in range(num_classes):
-                    remaining.extend(class_idxs[c])
-
-                shortage = samples_per_client - current_size
-                if len(remaining) >= shortage:
-                    supplement = np.random.choice(remaining, shortage, replace=False)
-                    client_idxs[client_id].extend(supplement)
-
-                    # 从 class_idxs 中移除已使用的样本
-                    for c in range(num_classes):
-                        class_idxs[c] = np.setdiff1d(class_idxs[c], supplement)
-
+    # 获取标签 (兼容 List 和 Tensor)
+    if isinstance(dataset.targets, torch.Tensor):
+        labels = dataset.targets.numpy()
     else:
-        # 独立同分布划分
-        class_idxs = [np.where(labels == i)[0] for i in range(num_classes)]
-        client_idxs = [[] for _ in range(num_clients)]
+        labels = np.array(dataset.targets)
 
-        for c in range(num_classes):
-            idxs = class_idxs[c]
-            np.random.shuffle(idxs)
+    num_samples = len(dataset)
+    # 假设类别从 0 开始连续，如果不是，需要调整这里
+    num_classes = len(np.unique(labels))
+    client_data = {}
 
-            samples_per_client_class = len(idxs) // num_clients
-            remainder = len(idxs) % num_clients
+    # ---------------------------------------------------------
+    # Non-IID 划分逻辑 (方案一：允许数量不平衡，保证分布准确)
+    # ---------------------------------------------------------
+    if non_iid:
+        client_idcs = [[] for _ in range(num_clients)]
 
-            start = 0
-            for client_id in range(num_clients):
-                end = start + samples_per_client_class + (1 if client_id < remainder else 0)
-                client_idxs[client_id].extend(idxs[start:end])
-                start = end
+        while True:
+            current_client_idcs = [[] for _ in range(num_clients)]
 
-    # 创建客户端数据集，并确保每个客户端数据量完全一致
+            for k in range(num_classes):
+                idx_k = np.where(labels == k)[0]
+                np.random.shuffle(idx_k)
+
+                # Dirichlet 划分
+                proportions = np.random.dirichlet(np.repeat(alpha, num_clients))
+
+                # 平衡修正：如果某个客户端已经有太多数据，按比例减少它获取的概率（可选，这里保持纯概率）
+                proportions = np.array([p * (len(idx_j) < num_samples / num_clients) for p, idx_j in
+                                        zip(proportions, current_client_idcs)])
+
+                # 防止全零
+                if proportions.sum() == 0:
+                    proportions = np.ones(num_clients)  # 兜底逻辑
+
+                proportions = proportions / proportions.sum()
+                proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+
+                idx_split = np.split(idx_k, proportions)
+
+                for client_id in range(num_clients):
+                    current_client_idcs[client_id].extend(idx_split[client_id])
+
+            min_size = min([len(c) for c in current_client_idcs])
+            if min_size >= min_require_size:
+                client_idcs = current_client_idcs
+                break
+            else:
+                print(f"  [Warning] Random split resulted in a client with {min_size} samples. Retrying...")
+
+    # ---------------------------------------------------------
+    # IID 划分逻辑
+    # ---------------------------------------------------------
+    else:
+        idxs = np.arange(num_samples)
+        np.random.shuffle(idxs)
+        samples_per_client = num_samples // num_clients
+        client_idcs = [idxs[i * samples_per_client: (i + 1) * samples_per_client] for i in range(num_clients)]
+
+    # ---------------------------------------------------------
+    # 创建 Subset 并输出详细统计（含0样本类别）
+    # ---------------------------------------------------------
     for client_id in range(num_clients):
-        # 严格截取或补充到 samples_per_client
-        if len(client_idxs[client_id]) > samples_per_client:
-            client_idxs[client_id] = client_idxs[client_id][:samples_per_client]
+        np.random.shuffle(client_idcs[client_id])
+        client_data[client_id] = Subset(dataset, client_idcs[client_id])
 
-        np.random.shuffle(client_idxs[client_id])
-        client_data[client_id] = Subset(dataset, client_idxs[client_id])
-
-    # --- 新增：打印每个客户端的数据分布比例 ---
-    print(f"\n[Client Split Distribution] (Mode: {'Non-IID' if non_iid else 'IID'})")
+    # --- 修改后的打印逻辑 ---
+    print(f"\n[Client Split Distribution] (Mode: {'Non-IID' if non_iid else 'IID'}, Alpha: {alpha})")
     for client_id, subset in client_data.items():
-        # 获取该客户端所有样本的标签
         client_indices = subset.indices
-        client_labels = labels[client_indices] # labels 是函数开头定义的 dataset.targets
-
-        unique_cls, counts = np.unique(client_labels, return_counts=True)
+        client_labels = labels[client_indices]
         total = len(client_labels)
 
-        dist_str = ", ".join([f"C{u}:{c}({c/total:.0%})" for u, c in zip(unique_cls, counts)])
+        # 1. 初始化全零数组
+        counts_full = np.zeros(num_classes, dtype=int)
+
+        # 2. 统计当前存在的类别和数量
+        unique_cls, counts_actual = np.unique(client_labels, return_counts=True)
+
+        # 3. 填入对应的位置
+        counts_full[unique_cls] = counts_actual
+
+        # 4. 格式化输出所有类别 (C0, C1, ... Cn)
+        # 使用 :<3 占位符让数字对齐，方便查看
+        dist_str = " ".join([f"C{k}:{c:<3}" for k, c in enumerate(counts_full)])
+
         print(f"  Client {client_id:<2}: Total {total:<5} | {dist_str}")
-    # ------------------------------------------
 
     return client_data

@@ -188,7 +188,7 @@ class Server:
             elif dataset_name == 'iot23':
                 # 调用新创建的 ResNet-1D 模型 (在此处导入以避免未使用的引用)
                 from models.resnet_iot23 import ResNet_IoT23
-                return ResNet_IoT23(num_classes=5, input_dim=10)
+                return ResNet_IoT23(num_classes=5, input_dim=20)
 
         elif model_name == 'RESNET50':
             from models.resnet50 import CIFAR10_ResNet50, CIFAR100_ResNet50, ImageNet_ResNet50
@@ -206,7 +206,7 @@ class Server:
                 return MobileNetV1_Audio(num_classes=35, input_channels=1)
             elif dataset_name == 'iot23':
                 # 使用新添加的 1D MobileNet
-                return MobileNetV1_IoT23(num_classes=5, input_dim=10)
+                return MobileNetV1_IoT23(num_classes=5, input_dim=20)
 
 
         elif model_name == 'MOBILENET_V2':
@@ -215,13 +215,13 @@ class Server:
                 return MobileNetV2_Audio(num_classes=35, input_channels=1)
             elif dataset_name == 'iot23':
                 # 使用新添加的 1D MobileNet
-                return MobileNetV2_IoT23(num_classes=5, input_dim=10)
+                return MobileNetV2_IoT23(num_classes=5, input_dim=20)
 
         # === 新增: MLP 支持 (IoT-23) ===
         elif model_name == 'MLP':
             from models.MLP import MLP_IoT23
             if dataset_name == 'iot23':
-                return MLP_IoT23(num_classes=5, input_dim=10)
+                return MLP_IoT23(num_classes=5, input_dim=20)
 
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 

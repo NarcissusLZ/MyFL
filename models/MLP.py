@@ -4,7 +4,8 @@ import torch.nn.functional as F
 
 
 class MLP_IoT23(nn.Module):
-    def __init__(self, num_classes=5, input_dim=10):
+    # 修改默认 input_dim 为 20，适配最新的特征工程（12基础+2衍生+6History = 20维）
+    def __init__(self, num_classes=5, input_dim=20):
         super(MLP_IoT23, self).__init__()
 
         # 对于表格数据，MLP 比 CNN 稳定得多

@@ -36,12 +36,32 @@ class IoT23Dataset(Dataset):
 def load_iot23_data(root_dir):
     file_path = os.path.join(root_dir, 'iot23.csv')
     if not os.path.exists(file_path):
+        print(f"[Error] File not found: {file_path}")
         return None, None
 
     print(f"Loading data from {file_path}...")
     df = pd.read_csv(file_path)
-    X = df.iloc[:, :-1].values.astype(np.float32)
+
+    # ================= 修改开始 =================
+    # 1. 定义要剔除的“泄露特征”
+    # resp_port 是最大的作弊嫌疑人。
+    # 如果未来你有 src_ip, dst_ip, timestamp, flow_id 等列，也要在这里剔除。
+    drop_columns = ['resp_port', 'label']
+
+    # 2. 检查这些列是否存在，防止报错
+    existing_drop_cols = [c for c in drop_columns if c in df.columns]
+
+    # 3. 提取特征 (X) 和 标签 (y)
+    # 显式指定：除了 drop_columns 以外的所有列都是特征
+    feature_cols = [c for c in df.columns if c not in existing_drop_cols]
+
+    print(f"Selected {len(feature_cols)} features: {feature_cols}")
+    print(f"Dropped suspicious columns: {existing_drop_cols}")
+
+    X = df[feature_cols].values.astype(np.float32)
     y = df['label'].values.astype(np.int64)
+    # ================= 修改结束 =================
+
     return X, y
 
 class GoogleSpeechWrapper(Dataset):
@@ -223,31 +243,25 @@ def get_dataset(dir, name):
 
     elif name == 'iot23':
 
-        # 1. 加载原始数据
-
+        # 1. 加载清洗后的数据 (去除了端口)
         X, y = load_iot23_data(dir)
-
-        # 2. 先划分训练集和测试集
-
+        if X is None:
+            raise FileNotFoundError("Could not load iot23.csv")
+        # 2. 划分训练集和测试集
+        # 注意：如果你的数据是按时间顺序排列的，最好不要 shuffle=True，而是直接截断。
+        # 这里为了简单通用，还是保留 stratify，但要注意这可能会切碎攻击流。
         X_train, X_test, y_train, y_test = train_test_split(
             X, y,
             test_size=0.2,
             random_state=42,
-            stratify=y  # <--- 关键修改！
+            stratify=y
         )
 
-        # 3. 仅在训练集上拟合归一化器 (Fit on Train)
-
+        # 3. 归一化 (非常重要，尤其是剔除了端口这种大数值特征后)
         scaler = StandardScaler()
-
         X_train = scaler.fit_transform(X_train)
-
-        # 4. 用训练集的参数转换测试集 (Transform Test)
-
         X_test = scaler.transform(X_test)
-
         train_dataset = IoT23Dataset(X_train, y_train)
-
         eval_dataset = IoT23Dataset(X_test, y_test)
 
     else:

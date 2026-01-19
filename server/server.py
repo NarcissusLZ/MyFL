@@ -221,7 +221,7 @@ class Server:
         elif model_name == 'MLP':
             from models.MLP import MLP_IoT23
             if dataset_name == 'iot23':
-                return MLP_IoT23(num_classes=5, input_dim=20)
+                return MLP_IoT23(num_classes=5, input_dim=19)
 
         raise ValueError(f"不支持的模型与数据集组合: {model_name} + {dataset_name}")
 

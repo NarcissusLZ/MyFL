@@ -8,18 +8,13 @@ class MLP_IoT23(nn.Module):
     def __init__(self, num_classes=5, input_dim=19):
         super(MLP_IoT23, self).__init__()
 
-        # 对于表格数据，MLP 比 CNN 稳定得多
-        self.layer1 = nn.Linear(input_dim, 128)
-        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
-        self.bn1 = nn.GroupNorm(32, 128)
-
-        self.layer2 = nn.Linear(128, 256)
-        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 256 channels)
-        self.bn2 = nn.GroupNorm(32, 256)
-
-        self.layer3 = nn.Linear(256, 128)
-        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
-        self.bn3 = nn.GroupNorm(32, 128)
+        # 尝试把中间层从 128/256 增加到 256/512
+        self.layer1 = nn.Linear(input_dim, 256)
+        self.bn1 = nn.GroupNorm(32, 256)
+        self.layer2 = nn.Linear(256, 512)
+        self.bn2 = nn.GroupNorm(32, 512)
+        self.layer3 = nn.Linear(512, 256)
+        self.bn3 = nn.GroupNorm(32, 256)
 
         self.head = nn.Linear(128, num_classes)
 

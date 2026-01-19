@@ -4,30 +4,29 @@ import torch.nn.functional as F
 
 
 class MLP_IoT23(nn.Module):
+    # 修改默认 input_dim 为 20，适配最新的特征工程（12基础+2衍生+6History = 20维）
     def __init__(self, num_classes=5, input_dim=19):
         super(MLP_IoT23, self).__init__()
 
-        # 第一层: 19 -> 256 (加宽)
-        self.layer1 = nn.Linear(input_dim, 256)
-        self.bn1 = nn.GroupNorm(32, 256)
+        # 对于表格数据，MLP 比 CNN 稳定得多
+        self.layer1 = nn.Linear(input_dim, 128)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
+        self.bn1 = nn.GroupNorm(32, 128)
 
-        # 第二层: 256 -> 512 (加宽)
-        self.layer2 = nn.Linear(256, 512)
-        self.bn2 = nn.GroupNorm(32, 512)
+        self.layer2 = nn.Linear(128, 256)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 256 channels)
+        self.bn2 = nn.GroupNorm(32, 256)
 
-        # 第三层: 512 -> 256 (加宽)
-        self.layer3 = nn.Linear(512, 256)
-        self.bn3 = nn.GroupNorm(32, 256)
+        self.layer3 = nn.Linear(256, 128)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
+        self.bn3 = nn.GroupNorm(32, 128)
 
-        # === 关键修改在这里 ===
-        # 以前是 nn.Linear(128, num_classes)
-        # 现在必须改成 256，因为 layer3 输出是 256
-        self.head = nn.Linear(256, num_classes)
-        # ======================
+        self.head = nn.Linear(128, num_classes)
 
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(0.2)  # 防止过拟合
 
     def forward(self, x):
+        # 如果输入是 (Batch, 1, 10) 或 (Batch, 10)，统一展平
         if x.dim() > 2:
             x = x.view(x.size(0), -1)
 
@@ -38,6 +37,5 @@ class MLP_IoT23(nn.Module):
         x = self.dropout(x)
 
         x = F.relu(self.bn3(self.layer3(x)))
-        # 这里不需要 dropout，通常最后一层前直接输出或者只在 ReLU 后接 dropout
 
         return self.head(x)

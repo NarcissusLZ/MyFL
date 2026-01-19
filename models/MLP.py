@@ -9,13 +9,16 @@ class MLP_IoT23(nn.Module):
 
         # 对于表格数据，MLP 比 CNN 稳定得多
         self.layer1 = nn.Linear(input_dim, 128)
-        self.bn1 = nn.BatchNorm1d(128)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
+        self.bn1 = nn.GroupNorm(32, 128)
 
         self.layer2 = nn.Linear(128, 256)
-        self.bn2 = nn.BatchNorm1d(256)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 256 channels)
+        self.bn2 = nn.GroupNorm(32, 256)
 
         self.layer3 = nn.Linear(256, 128)
-        self.bn3 = nn.BatchNorm1d(128)
+        # 将 BatchNorm1d 替换为 GroupNorm (32 groups, 128 channels)
+        self.bn3 = nn.GroupNorm(32, 128)
 
         self.head = nn.Linear(128, num_classes)
 
